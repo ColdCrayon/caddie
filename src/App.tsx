@@ -161,7 +161,10 @@ export default function App() {
     }
 
     // On mount: check for an existing session (page refresh / returning user)
-    supabase.auth.getSession()
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Connection timed out — your Supabase project may be paused. Visit supabase.com/dashboard to resume it.')), 10_000)
+    )
+    Promise.race([supabase.auth.getSession(), timeout])
       .then(async ({ data: { session }, error }) => {
         if (error) {
           setConnError(error.message)
