@@ -133,64 +133,58 @@ export default function App() {
   }
 
   useEffect(() => {
+    // Shared helper: fetch or create the user profile row, then call setUser
+    const loadProfile = async (authUser: { id: string; email?: string; user_metadata?: Record<string, string> }) => {
+      const { data } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.id)
+        .single()
+
+      if (data) {
+        setUser(data as User)
+      } else {
+        const profile: User = {
+          id: authUser.id,
+          email: authUser.email ?? '',
+          display_name:
+            authUser.user_metadata?.display_name ??
+            authUser.email?.split('@')[0] ??
+            'Golfer',
+          handicap_index: null,
+          home_course_id: null,
+          created_at: new Date().toISOString(),
+        }
+        await supabase.from('users').insert(profile)
+        setUser(profile)
+      }
+    }
+
+    // On mount: check for an existing session (page refresh / returning user)
     supabase.auth.getSession()
-      .then(({ data: { session }, error }) => {
-        // A non-null error here means the key or URL is wrong / project is paused
+      .then(async ({ data: { session }, error }) => {
         if (error) {
           setConnError(error.message)
-          setAuthLoading(false)
           return
         }
-
-        if (!session?.user) {
-          // No session — unblock immediately so the auth route can render
-          setAuthLoading(false)
-          return
+        if (session?.user) {
+          try { await loadProfile(session.user) } catch { /* unblock even on failure */ }
         }
-
-        // Session exists — fetch or create profile, THEN unblock
-        const loadProfile = async () => {
-          try {
-            const { data } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', session.user.id)
-              .single()
-
-            if (data) {
-              setUser(data as User)
-            } else {
-              const profile: User = {
-                id: session.user.id,
-                email: session.user.email ?? '',
-                display_name:
-                  session.user.user_metadata?.display_name ??
-                  session.user.email?.split('@')[0] ??
-                  'Golfer',
-                handicap_index: null,
-                home_course_id: null,
-                created_at: new Date().toISOString(),
-              }
-              await supabase.from('users').insert(profile)
-              setUser(profile)
-            }
-          } catch {
-            // Profile fetch/create failed — still unblock so the user can try auth
-          } finally {
-            setAuthLoading(false)
-          }
-        }
-        loadProfile()
       })
       .catch((err: unknown) => {
-        // getSession itself threw (network/config issue) — surface the error visibly
         const msg = err instanceof Error ? err.message : String(err)
         setConnError(msg)
-        setAuthLoading(false)
       })
+      .finally(() => setAuthLoading(false))
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') setUser(null)
+    // Auth state changes: sign-in, sign-out, token refresh
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setUser(null)
+      } else if (event === 'SIGNED_IN' && session?.user) {
+        // User just logged in — load their profile so the route guard can redirect them
+        try { await loadProfile(session.user) } catch { /* ignore — user stays on /auth */ }
+      }
     })
 
     // Safari install hint
