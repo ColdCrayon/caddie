@@ -182,6 +182,32 @@ export function HoleCard({ hole, index }: HoleCardProps) {
           </button>
         ))}
       </div>
+
+      {/* Pin position — only shown after first stroke */}
+      {hole.strokes > 0 && (
+        <div
+          className="px-5 py-4"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+        >
+          <p className="font-ui text-fog text-xs uppercase tracking-widest mb-2">Where's the pin?</p>
+          <div className="grid grid-cols-3 gap-2">
+            {(['front', 'middle', 'back'] as const).map((zone) => (
+              <button
+                key={zone}
+                onClick={() => updateHole(index, { pinZone: hole.pinZone === zone ? null : zone })}
+                className="py-2 rounded capitalize font-ui text-xs font-semibold uppercase tracking-wider transition-all active:scale-[0.96] cursor-pointer"
+                style={{
+                  border: hole.pinZone === zone ? '1px solid rgba(201,169,110,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                  background: hole.pinZone === zone ? 'rgba(201,169,110,0.14)' : 'rgba(22,31,22,0.6)',
+                  color: hole.pinZone === zone ? '#C9A96E' : 'rgba(237,233,223,0.4)',
+                }}
+              >
+                {zone}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </Card>
   )
 }

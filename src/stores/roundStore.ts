@@ -10,6 +10,14 @@ const DEFAULT_HOLE: Omit<ActiveHoleState, 'holeNumber' | 'par' | 'yardage'> = {
   sandSave: false,
   pinLat: null,
   pinLng: null,
+  pinIsCustom: false,
+  pinZone: null,
+  greenCenterLat: null,
+  greenCenterLng: null,
+  greenFrontLat: null,
+  greenFrontLng: null,
+  greenBackLat: null,
+  greenBackLng: null,
 }
 
 interface RoundStore {
@@ -22,7 +30,16 @@ interface RoundStore {
     courseLat?: number | null
     courseLng?: number | null
     teeColor: TeeColor
-    holes: { par: number; yardage: number }[]
+    holes: {
+      par: number
+      yardage: number
+      greenCenterLat?: number | null
+      greenCenterLng?: number | null
+      greenFrontLat?: number | null
+      greenFrontLng?: number | null
+      greenBackLat?: number | null
+      greenBackLng?: number | null
+    }[]
   }) => void
   setCurrentHole: (index: number) => void
   updateHole: (index: number, updates: Partial<ActiveHoleState>) => void
@@ -39,12 +56,26 @@ export const useRoundStore = create<RoundStore>()(
       isOffline: false,
 
       startRound: ({ roundId, courseId, courseName, courseLat, courseLng, teeColor, holes }) => {
-        const holeStates: ActiveHoleState[] = holes.map((h, i) => ({
-          holeNumber: i + 1,
-          par: h.par,
-          yardage: h.yardage,
-          ...DEFAULT_HOLE,
-        }))
+        const holeStates: ActiveHoleState[] = holes.map((h, i) => {
+          const greenCenterLat = h.greenCenterLat ?? null
+          const greenCenterLng = h.greenCenterLng ?? null
+          return {
+            holeNumber: i + 1,
+            par: h.par,
+            yardage: h.yardage,
+            ...DEFAULT_HOLE,
+            greenCenterLat,
+            greenCenterLng,
+            greenFrontLat: h.greenFrontLat ?? null,
+            greenFrontLng: h.greenFrontLng ?? null,
+            greenBackLat: h.greenBackLat ?? null,
+            greenBackLng: h.greenBackLng ?? null,
+            // Auto-set pin to green center when coords are available
+            pinLat: greenCenterLat,
+            pinLng: greenCenterLng,
+            pinIsCustom: false,
+          }
+        })
         set({
           activeRound: {
             roundId,
@@ -71,7 +102,6 @@ export const useRoundStore = create<RoundStore>()(
           if (!s.activeRound) return s
           const holes = [...s.activeRound.holes]
           holes[index] = { ...holes[index], ...updates }
-          // score_label is derived, computed in HoleCard via getScoreLabel
           return { activeRound: { ...s.activeRound, holes } }
         }),
 

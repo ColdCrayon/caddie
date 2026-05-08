@@ -4,14 +4,17 @@ import { useNavigate } from 'react-router-dom'
 import { HoleCard } from '../components/round/HoleCard'
 import { CourseMap } from '../components/round/CourseMap'
 import { DistanceDisplay } from '../components/round/DistanceDisplay'
+import { HoleOverviewCard } from '../components/round/HoleOverviewCard'
 import { ShotLogger } from '../components/round/ShotLogger'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { useRoundStore } from '../stores/roundStore'
 import { getScoreLabel } from '../lib/handicap'
 import { watchPosition, clearWatch, getDistancesToGreen, type GreenDistances } from '../lib/gps'
+import { fetchElevationPair, computePlaysLike } from '../lib/elevation'
 import { supabase } from '../lib/supabase'
 import { useUserStore } from '../stores/userStore'
+import type { PlaysLike } from '../types'
 
 // SVG icons
 const MapIcon = () => (
@@ -41,23 +44,46 @@ type View = 'gps' | 'scorecard'
 export default function RoundActive() {
   const navigate = useNavigate()
   const user = useUserStore((s) => s.user)
-  const { activeRound, isOffline, setCurrentHole, clearRound, getScoreToPar, getCompletedHoles } = useRoundStore()
+  const { activeRound, isOffline, setCurrentHole, updateHole, clearRound, getScoreToPar, getCompletedHoles } = useRoundStore()
 
   const [view, setView] = useState<View>('gps')
   const [shotLoggerOpen, setShotLoggerOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
   const [finishing, setFinishing] = useState(false)
   const [distances, setDistances] = useState<GreenDistances | null>(null)
+  const [playsLike, setPlaysLike] = useState<PlaysLike | null>(null)
   const [gpsAccuracy, setGpsAccuracy] = useState<number | undefined>()
   const [gpsUpdating, setGpsUpdating] = useState(false)
   const [cardWidth, setCardWidth] = useState(0)
+  const [showHoleOverview, setShowHoleOverview] = useState(false)
+  const [gamePlanTips, setGamePlanTips] = useState<Record<number, string>>({})
+
   const carouselRef = useRef<HTMLDivElement>(null)
   const carouselX = useMotionValue(0)
   const watchIdRef = useRef<number>(-1)
+  const playerPosRef = useRef<{ lat: number; lng: number } | null>(null)
+  // Cache elevation per hole to avoid refetching (keyed by holeNumber)
+  const elevCacheRef = useRef<Record<number, { playerElev: number; pinElev: number }>>({})
+  const prevHoleIndexRef = useRef<number>(-1)
 
   const scoreToPar = getScoreToPar()
   const completedHoles = getCompletedHoles()
   const currentIdx = activeRound?.currentHoleIndex ?? 0
+  const currentHole = activeRound?.holes[currentIdx]
+
+  // Show hole overview on hole change (not on mount)
+  useEffect(() => {
+    if (!activeRound) return
+    if (prevHoleIndexRef.current === -1) {
+      prevHoleIndexRef.current = currentIdx
+      return
+    }
+    if (prevHoleIndexRef.current !== currentIdx) {
+      prevHoleIndexRef.current = currentIdx
+      setShowHoleOverview(true)
+      setPlaysLike(null)
+    }
+  }, [currentIdx, activeRound])
 
   // GPS watch for distance display
   useEffect(() => {
@@ -65,15 +91,42 @@ export default function RoundActive() {
 
     watchIdRef.current = watchPosition(
       (pos) => {
+        playerPosRef.current = { lat: pos.lat, lng: pos.lng }
         setGpsAccuracy(pos.accuracy)
         setGpsUpdating(true)
-        const currentHole = useRoundStore.getState().activeRound?.holes[
+        const hole = useRoundStore.getState().activeRound?.holes[
           useRoundStore.getState().activeRound?.currentHoleIndex ?? 0
         ]
-        if (currentHole?.pinLat && currentHole?.pinLng) {
+        if (hole?.pinLat && hole?.pinLng) {
           setDistances(
-            getDistancesToGreen(pos.lat, pos.lng, { lat: currentHole.pinLat, lng: currentHole.pinLng })
+            getDistancesToGreen(
+              pos.lat, pos.lng,
+              { lat: hole.pinLat, lng: hole.pinLng },
+              hole.greenFrontLat && hole.greenFrontLng ? { lat: hole.greenFrontLat, lng: hole.greenFrontLng } : undefined,
+              hole.greenBackLat && hole.greenBackLng ? { lat: hole.greenBackLat, lng: hole.greenBackLng } : undefined,
+            )
           )
+          // Fetch elevation for plays-like (cached per hole)
+          const cacheKey = hole.holeNumber
+          const cached = elevCacheRef.current[cacheKey]
+          if (cached) {
+            setPlaysLike(computePlaysLike(
+              getDistancesToGreen(pos.lat, pos.lng, { lat: hole.pinLat, lng: hole.pinLng }).middle,
+              cached.playerElev,
+              cached.pinElev
+            ))
+          } else {
+            fetchElevationPair(pos.lat, pos.lng, hole.pinLat, hole.pinLng)
+              .then(([playerElev, pinElev]) => {
+                elevCacheRef.current[cacheKey] = { playerElev, pinElev }
+                const dist = getDistancesToGreen(pos.lat, pos.lng, { lat: hole.pinLat!, lng: hole.pinLng! }).middle
+                setPlaysLike(computePlaysLike(dist, playerElev, pinElev))
+              })
+              .catch(() => {})
+          }
+        } else {
+          setDistances(null)
+          setPlaysLike(null)
         }
         setTimeout(() => setGpsUpdating(false), 800)
       },
@@ -83,13 +136,56 @@ export default function RoundActive() {
     return () => clearWatch(watchIdRef.current)
   }, [activeRound])
 
+  // Re-fetch elevation when pin moves (custom pin set)
+  useEffect(() => {
+    if (!currentHole?.pinLat || !currentHole?.pinLng || !playerPosRef.current) return
+    const player = playerPosRef.current
+    const cacheKey = currentHole.holeNumber
+    // Invalidate cache when pin changes
+    delete elevCacheRef.current[cacheKey]
+    fetchElevationPair(player.lat, player.lng, currentHole.pinLat, currentHole.pinLng)
+      .then(([playerElev, pinElev]) => {
+        elevCacheRef.current[cacheKey] = { playerElev, pinElev }
+        if (distances) {
+          setPlaysLike(computePlaysLike(distances.middle, playerElev, pinElev))
+        }
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentHole?.pinLat, currentHole?.pinLng])
+
   // Recalculate distances when current hole pin changes
-  const currentHole = activeRound?.holes[currentIdx]
   useEffect(() => {
     if (!currentHole?.pinLat || !currentHole?.pinLng) {
       setDistances(null)
+      setPlaysLike(null)
     }
   }, [currentHole?.pinLat, currentHole?.pinLng])
+
+  // Load game plan tips for the current course
+  useEffect(() => {
+    if (!activeRound?.courseId) return
+    const courseId = activeRound.courseId
+    void (async () => {
+      try {
+        const { data } = await supabase
+          .from('course_game_plans')
+          .select('holes')
+          .eq('course_id', courseId)
+          .order('generated_at', { ascending: false })
+          .limit(1)
+          .single()
+        if (!data?.holes) return
+        const tips: Record<number, string> = {}
+        for (const h of data.holes as { number: number; tip: string }[]) {
+          tips[h.number] = h.tip
+        }
+        setGamePlanTips(tips)
+      } catch {
+        // No game plan available — silent
+      }
+    })()
+  }, [activeRound?.courseId])
 
   // Measure card width on mount and resize
   useLayoutEffect(() => {
@@ -118,6 +214,18 @@ export default function RoundActive() {
     }
   }, [])
 
+  const handleResetPin = useCallback(() => {
+    if (!currentHole || !activeRound) return
+    const hole = activeRound.holes[currentIdx]
+    if (hole.greenCenterLat && hole.greenCenterLng) {
+      updateHole(currentIdx, {
+        pinLat: hole.greenCenterLat,
+        pinLng: hole.greenCenterLng,
+        pinIsCustom: false,
+      })
+    }
+  }, [currentHole, activeRound, currentIdx, updateHole])
+
   const finishRound = useCallback(async () => {
     if (!activeRound || !user) return
     setFinishing(true)
@@ -137,6 +245,7 @@ export default function RoundActive() {
           gir: h.gir,
           sand_save: h.sandSave,
           score_label: getScoreLabel(h.strokes, h.par),
+          pin_position: h.pinZone ?? null,
         }))
 
       await supabase.from('holes_played').insert(holesData)
@@ -165,6 +274,19 @@ export default function RoundActive() {
       className="max-w-[430px] mx-auto min-h-screen overflow-hidden round-screen"
       style={{ background: '#0E160E' }}
     >
+      {/* Hole overview overlay */}
+      {showHoleOverview && currentHole && (
+        <HoleOverviewCard
+          holeNumber={currentHole.holeNumber}
+          par={currentHole.par}
+          yardage={currentHole.yardage}
+          distToPin={distances?.middle ?? null}
+          playsLike={playsLike}
+          gamePlanTip={gamePlanTips[currentHole.holeNumber] ?? null}
+          onDismiss={() => setShowHoleOverview(false)}
+        />
+      )}
+
       {/* Sticky header */}
       <header
         className="sticky top-0 z-20 border-b border-white/5 px-4 py-3"
@@ -253,8 +375,11 @@ export default function RoundActive() {
           >
             <DistanceDisplay
               distances={distances}
+              playsLike={playsLike}
+              pinIsCustom={currentHole?.pinIsCustom ?? false}
               updating={gpsUpdating}
               accuracy={gpsAccuracy}
+              onResetPin={currentHole?.greenCenterLat ? handleResetPin : undefined}
             />
           </div>
 
@@ -312,9 +437,8 @@ export default function RoundActive() {
               else if (vel > 300 || off > cardWidth / 3) next = Math.max(currentIdx - 1, 0)
 
               if (next !== currentIdx) {
-                setCurrentHole(next) // triggers the animate useEffect
+                setCurrentHole(next)
               } else {
-                // Small swipe that didn't reach threshold — snap back to center
                 animate(carouselX, -currentIdx * cardWidth, { type: 'spring', stiffness: 320, damping: 32 })
               }
             }}
@@ -348,7 +472,7 @@ export default function RoundActive() {
             }}
           >
             <MapIcon />
-            {distances ? 'Satellite' : 'Set Target'}
+            {distances ? 'Satellite' : 'Set Pin'}
           </button>
           <button
             onClick={() => setShotLoggerOpen(true)}
@@ -379,15 +503,19 @@ export default function RoundActive() {
         courseLng={activeRound.courseLng ?? undefined}
       />
 
-      {mapOpen && (
+      {mapOpen && currentHole && (
         <CourseMap
-          hole={currentHole!}
+          hole={currentHole}
           teeColor={activeRound.teeColor}
           courseLat={activeRound.courseLat ?? null}
           courseLng={activeRound.courseLng ?? null}
           onClose={() => setMapOpen(false)}
-          onPinSet={(lat, lng) => {
-            useRoundStore.getState().updateHole(currentIdx, { pinLat: lat, pinLng: lng })
+          onPinSet={(lat, lng, isCustom) => {
+            useRoundStore.getState().updateHole(currentIdx, {
+              pinLat: lat,
+              pinLng: lng,
+              pinIsCustom: isCustom ?? true,
+            })
           }}
         />
       )}

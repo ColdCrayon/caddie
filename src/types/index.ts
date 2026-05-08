@@ -12,6 +12,22 @@ export interface HoleData {
   par: number
   yardage: { black: number; blue: number; white: number; red: number }
   handicap?: number
+  // GPS coordinates — populated when course data includes them
+  green_center_lat?: number | null
+  green_center_lng?: number | null
+  green_front_lat?: number | null
+  green_front_lng?: number | null
+  green_back_lat?: number | null
+  green_back_lng?: number | null
+  tee_lat?: number | null
+  tee_lng?: number | null
+}
+
+export interface PlaysLike {
+  distance: number     // elevation-adjusted yardage
+  rawDistance: number  // GPS distance to pin
+  elevDiffFt: number   // positive = pin is uphill
+  grade: number        // grade percentage
 }
 
 export interface Course {
@@ -206,6 +222,14 @@ export interface ActiveHoleState {
   sandSave: boolean
   pinLat: number | null
   pinLng: number | null
+  pinIsCustom: boolean
+  pinZone: 'front' | 'middle' | 'back' | null
+  greenCenterLat: number | null
+  greenCenterLng: number | null
+  greenFrontLat: number | null
+  greenFrontLng: number | null
+  greenBackLat: number | null
+  greenBackLng: number | null
 }
 
 export interface ActiveRoundState {

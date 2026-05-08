@@ -327,6 +327,12 @@ export default function Round() {
       const teeHoles = allHoles.slice(holeStart, holeStart + holeCount).map((h) => ({
         par: h.par,
         yardage: h.yardage[teeColor] || h.yardage.white || 400,
+        greenCenterLat: h.green_center_lat ?? null,
+        greenCenterLng: h.green_center_lng ?? null,
+        greenFrontLat: h.green_front_lat ?? null,
+        greenFrontLng: h.green_front_lng ?? null,
+        greenBackLat: h.green_back_lat ?? null,
+        greenBackLng: h.green_back_lng ?? null,
       }))
 
       startRound({

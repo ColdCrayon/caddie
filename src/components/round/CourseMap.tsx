@@ -11,7 +11,6 @@ interface LatLng { lat: number; lng: number }
 
 function makePlayerEl(): HTMLDivElement {
   const el = document.createElement('div')
-  // 0-height wrapper centers the dot at the exact lat/lng
   el.style.cssText = 'width:20px;height:0;overflow:visible;position:relative;'
   const dot = document.createElement('div')
   dot.style.cssText = `
@@ -26,15 +25,12 @@ function makePlayerEl(): HTMLDivElement {
 
 function makeFlagEl(): HTMLDivElement {
   const el = document.createElement('div')
-  // Flag anchors at its bottom (default behaviour) — correct for a flagpole
-  el.style.cssText = 'width:28px;height:28px;display:flex;align-items:flex-end;justify-content:center;font-size:22px;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.7));'
+  el.style.cssText = 'width:28px;height:28px;display:flex;align-items:flex-end;justify-content:center;font-size:22px;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.7));cursor:grab;'
   el.textContent = '🚩'
   return el
 }
 
 function makeShotTargetEl(): HTMLDivElement {
-  // height:0 + overflow:visible → AdvancedMarkerElement anchors at bottom-center = y:0 in outer space.
-  // Inner translateY(-50%) centers it vertically around that anchor point (same pattern as makePlayerEl).
   const outer = document.createElement('div')
   outer.style.cssText = 'width:44px;height:0;overflow:visible;position:relative;cursor:grab;'
   const inner = document.createElement('div')
@@ -51,6 +47,19 @@ function makeShotTargetEl(): HTMLDivElement {
   return outer
 }
 
+function makeCalloutEl(yards: number): HTMLDivElement {
+  const el = document.createElement('div')
+  el.style.cssText = `
+    background:rgba(14,22,14,0.92);border:1px solid rgba(201,169,110,0.5);
+    border-radius:10px;padding:6px 12px;white-space:nowrap;
+    font-family:'Playfair Display',serif;color:#C9A96E;font-size:18px;font-weight:700;
+    pointer-events:none;
+    transform:translateY(-100%) translateY(-8px);
+  `
+  el.textContent = `${yards}y`
+  return el
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -59,13 +68,12 @@ interface Props {
   courseLat: number | null
   courseLng: number | null
   onClose: () => void
-  onPinSet?: (lat: number, lng: number) => void
+  onPinSet?: (lat: number, lng: number, isCustom?: boolean) => void
 }
 
 export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPinSet }: Props) {
   const mapDivRef = useRef<HTMLDivElement>(null)
 
-  // Map object refs — mutations never cause re-renders
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -75,6 +83,8 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const shotMarkerRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const calloutMarkerRef = useRef<any>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const linePlayerShotRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const lineShotPinRef = useRef<any>(null)
@@ -83,7 +93,6 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const AMERef = useRef<any>(null)
 
-  // Position refs — read inside stable map closures without causing rerenders
   const playerPosRef = useRef<LatLng | null>(null)
   const pinPosRef = useRef<LatLng | null>(null)
   const shotPosRef = useRef<LatLng | null>(null)
@@ -91,8 +100,8 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
   const onPinSetRef = useRef(onPinSet)
   const modeRef = useRef<PlaceMode>('pin')
   const watchIdRef = useRef<number | null>(null)
+  const calloutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Display state (UI only)
   const [mapReady, setMapReady] = useState(false)
   const [mode, setMode] = useState<PlaceMode>('pin')
   const [playerPos, setPlayerPos] = useState<LatLng | null>(null)
@@ -103,7 +112,6 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
 
   useEffect(() => { onPinSetRef.current = onPinSet }, [onPinSet])
 
-  // Sync mode to ref so map click closure can read it
   const setModeAndRef = (m: PlaceMode) => { modeRef.current = m; setMode(m) }
 
   // Fetch wind once
@@ -121,6 +129,22 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  function dismissCallout() {
+    if (calloutTimerRef.current) { clearTimeout(calloutTimerRef.current); calloutTimerRef.current = null }
+    if (calloutMarkerRef.current) { calloutMarkerRef.current.map = null; calloutMarkerRef.current = null }
+  }
+
+  function showCalloutAt(pos: LatLng, yards: number) {
+    dismissCallout()
+    if (!AMERef.current || !mapRef.current) return
+    calloutMarkerRef.current = new AMERef.current({
+      map: mapRef.current,
+      position: pos,
+      content: makeCalloutEl(yards),
+    })
+    calloutTimerRef.current = setTimeout(dismissCallout, 4000)
+  }
+
   // ONE-TIME map initialisation
   useEffect(() => {
     if (!mapDivRef.current || !GOOGLE_MAPS_KEY) return
@@ -137,36 +161,51 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
       if (cancelled || !mapDivRef.current) return
       AMERef.current = AdvancedMarkerElement
 
-      const center: LatLng = { lat: courseLat ?? 37.09024, lng: courseLng ?? -95.71289 }
+      // Use hole pin coords for initial center if available, else course coords
+      const initialCenter: LatLng = hole.pinLat && hole.pinLng
+        ? { lat: hole.pinLat, lng: hole.pinLng }
+        : { lat: courseLat ?? 37.09024, lng: courseLng ?? -95.71289 }
+
       const map = new Map(mapDivRef.current, {
-        center, zoom: courseLat ? 17 : 4,
+        center: initialCenter,
+        zoom: (hole.pinLat || courseLat) ? 17 : 4,
         mapTypeId: 'satellite', tilt: 0,
         disableDefaultUI: true, gestureHandling: 'greedy',
         mapId: 'DEMO_MAP_ID',
       })
       mapRef.current = map
 
-      // Player marker (centered via 0-height wrapper)
-      playerMarkerRef.current = new AdvancedMarkerElement({ map, position: center, content: makePlayerEl() })
+      playerMarkerRef.current = new AdvancedMarkerElement({ map, position: initialCenter, content: makePlayerEl() })
 
-      // Polylines
       linePlayerShotRef.current = new Polyline({ map, path: [], strokeColor: '#FFFFFF', strokeOpacity: 0.9, strokeWeight: 2 })
-      // Sand dashed line: shot → pin. Google Maps uses icons[] for dashes.
       lineShotPinRef.current = new Polyline({
         map, path: [], strokeColor: '#C9A96E', strokeOpacity: 0, strokeWeight: 0,
         icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.85, strokeColor: '#C9A96E', scale: 3 }, offset: '0', repeat: '12px' }],
       })
       lineDirectRef.current = new Polyline({ map, path: [], strokeColor: '#FFFFFF', strokeOpacity: 0.45, strokeWeight: 1.5 })
 
-      // Map tap — reads mode from ref (stable closure)
+      // Auto-place pin from hole state (green center or previously set pin)
+      if (hole.pinLat && hole.pinLng) {
+        const initialPin: LatLng = { lat: hole.pinLat, lng: hole.pinLng }
+        placePinAt(initialPin, false) // don't fire onPinSet — pin was already set
+        setModeAndRef('shot')
+      }
+
+      // Map tap handler
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map.addListener('click', (e: any) => {
         const pos: LatLng = { lat: e.latLng.lat(), lng: e.latLng.lng() }
         if (modeRef.current === 'pin') {
-          placePinAt(pos)
-          onPinSetRef.current?.(pos.lat, pos.lng)
+          placePinAt(pos, true)
+          onPinSetRef.current?.(pos.lat, pos.lng, true)
           setModeAndRef('shot')
         } else {
+          // In shot mode — show distance callout from player to tapped point
+          const player = playerPosRef.current
+          if (player) {
+            const d = distanceBetween(player.lat, player.lng, pos.lat, pos.lng)
+            showCalloutAt(pos, Math.round(d))
+          }
           placeShotAt(pos)
         }
       })
@@ -194,23 +233,48 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
     return () => {
       cancelled = true
       if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current)
+      if (calloutTimerRef.current) clearTimeout(calloutTimerRef.current)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function placePinAt(pos: LatLng) {
+  function placePinAt(pos: LatLng, fireCallback = true) {
     if (pinMarkerRef.current) pinMarkerRef.current.map = null
     if (!AMERef.current || !mapRef.current) return
-    pinMarkerRef.current = new AMERef.current({ map: mapRef.current, position: pos, content: makeFlagEl() })
+
+    const marker = new AMERef.current({
+      map: mapRef.current,
+      position: pos,
+      content: makeFlagEl(),
+      gmpDraggable: true,
+    })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleDrag = (e: any) => {
+      const p: LatLng = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+      pinPosRef.current = p
+      updateLines()
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleDragEnd = (e: any) => {
+      const p: LatLng = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+      pinPosRef.current = p
+      setPinPos(p)
+      onPinSetRef.current?.(p.lat, p.lng, true)
+      updateLines()
+    }
+    marker.addListener('drag', handleDrag)
+    marker.addListener('dragend', handleDragEnd)
+
+    pinMarkerRef.current = marker
     pinPosRef.current = pos
     setPinPos(pos)
+    if (fireCallback) onPinSetRef.current?.(pos.lat, pos.lng, true)
     updateLines()
   }
 
   function placeShotAt(pos: LatLng) {
-    if (shotMarkerRef.current) {
-      shotMarkerRef.current.map = null
-    }
+    if (shotMarkerRef.current) shotMarkerRef.current.map = null
     if (!AMERef.current || !mapRef.current) return
 
     const marker = new AMERef.current({
@@ -220,8 +284,6 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
       gmpDraggable: true,
     })
 
-    // `drag` fires every frame during drag — update lines in real time
-    // `dragend` commits the final position to React state
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handleDrag = (e: any) => {
       const newPos: LatLng = { lat: e.latLng.lat(), lng: e.latLng.lng() }
@@ -267,10 +329,9 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
     }
   }
 
-  // Derived distances
-  const distToShot   = playerPos && shotPos ? distanceBetween(playerPos.lat, playerPos.lng, shotPos.lat, shotPos.lng) : null
-  const distShotPin  = shotPos  && pinPos   ? distanceBetween(shotPos.lat,  shotPos.lng,  pinPos.lat,  pinPos.lng)  : null
-  const distToPin    = playerPos && pinPos   ? distanceBetween(playerPos.lat, playerPos.lng, pinPos.lat, pinPos.lng) : null
+  const distToShot  = playerPos && shotPos ? distanceBetween(playerPos.lat, playerPos.lng, shotPos.lat, shotPos.lng) : null
+  const distShotPin = shotPos  && pinPos   ? distanceBetween(shotPos.lat,  shotPos.lng,  pinPos.lat,  pinPos.lng)   : null
+  const distToPin   = playerPos && pinPos   ? distanceBetween(playerPos.lat, playerPos.lng, pinPos.lat, pinPos.lng) : null
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col max-w-[430px] mx-auto" style={{ background: '#0E160E' }}>
@@ -382,8 +443,8 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
         background: 'rgba(14,22,14,0.97)', borderTop: '1px solid rgba(255,255,255,0.08)',
       }}>
         {([
-          { id: 'pin'  as PlaceMode, label: '🚩 Set Pin',    hint: pinPos  ? '✓ Placed — tap to move'   : 'Tap the green' },
-          { id: 'shot' as PlaceMode, label: '◎ Set Shot',    hint: shotPos ? '✓ Placed — drag to adjust' : 'Tap fairway aim point' },
+          { id: 'pin'  as PlaceMode, label: '🚩 Set Pin',  hint: pinPos  ? '✓ Drag to adjust' : 'Tap the green' },
+          { id: 'shot' as PlaceMode, label: '◎ Set Shot',  hint: shotPos ? '✓ Drag to adjust' : 'Tap to aim' },
         ]).map(({ id, label, hint }) => (
           <button
             key={id}
