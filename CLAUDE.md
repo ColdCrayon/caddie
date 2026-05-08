@@ -55,6 +55,17 @@ Push to GitHub → connect to Vercel → set the three `VITE_*` env vars in Verc
 
 Edge Functions deploy with `supabase functions deploy ai-proxy` after running `supabase link`.
 
+## Graphify
+
+This project uses **graphify** to build a persistent knowledge graph of the codebase, decisions, and relationships across sessions.
+
+**When to run graphify:**
+- After any significant architectural change (new screens, new data flows, new API integrations)
+- When discovering non-obvious relationships between components (e.g. "CourseMap must be re-mounted with a stable onPinSet ref")
+- When the user types `/graphify` (invoke the Skill tool with `skill: "graphify"`)
+
+**How:** Type `/graphify` in the prompt to invoke the skill. It accepts any input — code snippets, architectural descriptions, lessons learned — and adds nodes/edges to the knowledge graph for future sessions to use as context.
+
 <!-- mulch:start -->
 ## Project Expertise (Mulch)
 <!-- mulch-onboard-v:3 -->

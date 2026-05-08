@@ -33,19 +33,18 @@ function makeFlagEl(): HTMLDivElement {
 }
 
 function makeShotTargetEl(): HTMLDivElement {
+  // height:22px + overflow:visible → bottom-center anchor at (22,22) = visual centre of the 44px SVG
   const outer = document.createElement('div')
-  // 0-height wrapper: bottom-center of this 0px-tall element IS the lat/lng.
-  // The SVG is positioned with top:-22px so its visual center lands on the lat/lng.
-  outer.style.cssText = 'width:44px;height:0;overflow:visible;position:relative;cursor:grab;'
+  outer.style.cssText = 'width:44px;height:22px;overflow:visible;position:relative;cursor:grab;'
   const inner = document.createElement('div')
-  inner.style.cssText = 'position:absolute;top:-22px;left:0;width:44px;height:44px;'
+  inner.style.cssText = 'position:absolute;top:0;left:0;width:44px;height:44px;transform:translateY(-50%);'
   inner.innerHTML = `<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="22" cy="22" r="19" stroke="white" stroke-width="2" stroke-opacity="0.9"/>
-    <circle cx="22" cy="22" r="3.5" fill="white"/>
-    <line x1="22" y1="3" x2="22" y2="12" stroke="white" stroke-width="2" stroke-linecap="round"/>
-    <line x1="22" y1="32" x2="22" y2="41" stroke="white" stroke-width="2" stroke-linecap="round"/>
-    <line x1="3" y1="22" x2="12" y2="22" stroke="white" stroke-width="2" stroke-linecap="round"/>
-    <line x1="32" y1="22" x2="41" y2="22" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="22" cy="22" r="18" stroke="white" stroke-width="2.5"/>
+    <circle cx="22" cy="22" r="3" fill="white"/>
+    <line x1="22" y1="2" x2="22" y2="11" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="22" y1="33" x2="22" y2="42" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="2" y1="22" x2="11" y2="22" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="33" y1="22" x2="42" y2="22" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
   </svg>`
   outer.appendChild(inner)
   return outer
@@ -151,8 +150,12 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
 
       // Polylines
       linePlayerShotRef.current = new Polyline({ map, path: [], strokeColor: '#FFFFFF', strokeOpacity: 0.9, strokeWeight: 2 })
-      lineShotPinRef.current    = new Polyline({ map, path: [], strokeColor: '#C9A96E', strokeOpacity: 0.85, strokeWeight: 2, strokeDasharray: '8 5' })
-      lineDirectRef.current     = new Polyline({ map, path: [], strokeColor: '#FFFFFF', strokeOpacity: 0.5, strokeWeight: 1.5 })
+      // Sand dashed line: shot → pin. Google Maps uses icons[] for dashes.
+      lineShotPinRef.current = new Polyline({
+        map, path: [], strokeColor: '#C9A96E', strokeOpacity: 0, strokeWeight: 0,
+        icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.85, strokeColor: '#C9A96E', scale: 3 }, offset: '0', repeat: '12px' }],
+      })
+      lineDirectRef.current = new Polyline({ map, path: [], strokeColor: '#FFFFFF', strokeOpacity: 0.45, strokeWeight: 1.5 })
 
       // Map tap — reads mode from ref (stable closure)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -216,16 +219,23 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
       gmpDraggable: true,
     })
 
-    // Update on drag
-    marker.addListener('gmpDragend', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const p = (marker as any).position as { lat: () => number; lng: () => number }
-      const newPos: LatLng = { lat: p.lat(), lng: p.lng() }
+    // `drag` fires every frame during drag — update lines in real time
+    // `dragend` commits the final position to React state
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleDrag = (e: any) => {
+      const newPos: LatLng = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+      shotPosRef.current = newPos
+      updateLines()
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleDragEnd = (e: any) => {
+      const newPos: LatLng = { lat: e.latLng.lat(), lng: e.latLng.lng() }
       shotPosRef.current = newPos
       setShotPos(newPos)
       updateLines()
-    })
+    }
+    marker.addListener('drag', handleDrag)
+    marker.addListener('dragend', handleDragEnd)
 
     shotMarkerRef.current = marker
     shotPosRef.current = pos
