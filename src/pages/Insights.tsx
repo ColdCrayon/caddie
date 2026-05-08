@@ -75,7 +75,7 @@ export default function Insights() {
 
   return (
     <SafeArea>
-      <PageHeader title="AI Insights" subtitle="Your weekly coaching digest" />
+      <PageHeader title="AI Insights" subtitle="Your weekly coaching digest" back />
       <div className="px-4 py-4 space-y-4">
         {loading && <SkeletonCard />}
 

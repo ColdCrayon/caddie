@@ -19,7 +19,7 @@ export default function Settings() {
 
   return (
     <SafeArea>
-      <PageHeader title="Settings" />
+      <PageHeader title="Settings" back />
       <div className="px-4 py-4 space-y-4">
         <Card className="p-4 space-y-3">
           <p className="font-ui text-chalk/40 text-xs uppercase tracking-widest">Account</p>

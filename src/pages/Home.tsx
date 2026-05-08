@@ -183,7 +183,7 @@ export default function Home() {
         {recentRounds.length > 0 && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <p className="font-ui text-fog text-xs uppercase tracking-widest mb-3 section-rule">Recent Rounds</p>
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
               {recentRounds.map((round) => {
                 // Use actual holes_played pars so 9-hole rounds aren't compared against 18-hole par
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -193,7 +193,7 @@ export default function Home() {
                   : (round.course?.holes?.reduce((a: number, h: { par: number }) => a + h.par, 0) ?? 72)
                 const diff = round.total_score - totalPar
                 return (
-                  <Link key={round.id} to={`/round/${round.id}`}>
+                  <Link key={round.id} to={`/round/${round.id}`} className="block">
                     <Card className="px-5 py-4 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform">
                       <div>
                         <p className="font-ui text-chalk font-semibold text-sm">

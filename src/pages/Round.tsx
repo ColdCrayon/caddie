@@ -36,6 +36,20 @@ interface ApiCourseResult {
   }>
 }
 
+function BackToSearch({ onBack }: { onBack: () => void }) {
+  return (
+    <button
+      onClick={onBack}
+      className="flex items-center gap-1.5 font-ui text-xs text-chalk/40 hover:text-chalk/70 transition-colors cursor-pointer"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+      Change course
+    </button>
+  )
+}
+
 function buildHolesFromApi(apiCourse: ApiCourseResult): HoleData[] {
   return Array.from({ length: 18 }, (_, i) => {
     const yardage = { black: 0, blue: 0, white: 0, red: 0 }
@@ -466,15 +480,19 @@ export default function Round() {
 
           {/* ── API Loading ── */}
           {step === 'api-loading' && (
-            <div className="py-8 flex flex-col items-center gap-3">
-              <div className="w-6 h-6 border-2 border-sand border-t-transparent rounded-full animate-spin" />
-              <p className="font-ui text-chalk/50 text-sm">Looking up course data…</p>
+            <div className="space-y-4">
+              <BackToSearch onBack={() => { setStep('search'); setCourseInput('') }} />
+              <div className="py-6 flex flex-col items-center gap-3">
+                <div className="w-6 h-6 border-2 border-sand border-t-transparent rounded-full animate-spin" />
+                <p className="font-ui text-chalk/50 text-sm">Looking up course data…</p>
+              </div>
             </div>
           )}
 
           {/* ── API Results ── */}
           {step === 'api-results' && (
             <div className="space-y-3">
+              <BackToSearch onBack={() => { setStep('search'); setCourseInput(''); setApiResults([]) }} />
               <p className="font-ui text-chalk/60 text-sm">
                 Select your course — we've fetched the full scorecard automatically.
               </p>
@@ -529,6 +547,7 @@ export default function Round() {
           {/* ── Manual Hole Entry ── */}
           {step === 'hole-entry' && (
             <div className="space-y-3">
+              <BackToSearch onBack={() => { setStep('search'); setSelectedCourse(null); setCourseInput('') }} />
               <p className="font-display text-sand font-semibold">{selectedCourse?.name}</p>
               <p className="font-ui text-chalk/60 text-sm">
                 Enter par and white tee yardage for each hole
@@ -571,6 +590,7 @@ export default function Round() {
           {/* ── Tee Select ── */}
           {step === 'tee-select' && selectedCourse && (
             <div className="space-y-4">
+              <BackToSearch onBack={() => { setStep('search'); setSelectedCourse(null); setCourseInput('') }} />
               <p className="font-display text-sand font-semibold">{selectedCourse.name}</p>
 
               {/* Slope / rating info if available */}
