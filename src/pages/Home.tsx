@@ -183,7 +183,7 @@ export default function Home() {
         {recentRounds.length > 0 && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <p className="font-ui text-fog text-xs uppercase tracking-widest mb-3 section-rule">Recent Rounds</p>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {recentRounds.map((round) => {
                 const totalPar = round.course?.holes?.reduce((a: number, h: { par: number }) => a + h.par, 0) ?? 72
                 const diff = round.total_score - totalPar

@@ -348,7 +348,7 @@ export default function RoundActive() {
             Log Shot
           </button>
         </div>
-        {completedHoles >= 9 && (
+        {completedHoles >= Math.ceil(activeRound.holes.length / 2) && (
           <Button
             onClick={finishRound}
             disabled={finishing}

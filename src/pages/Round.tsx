@@ -63,6 +63,8 @@ export default function Round() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null)
   const [teeColor, setTeeColor] = useState<TeeColor>('white')
   const [holeData, setHoleData] = useState<HoleData[]>([])
+  const [holeCount, setHoleCount] = useState<9 | 18>(18)
+  const [holeStart, setHoleStart] = useState<0 | 9>(0)
   const [saving, setSaving] = useState(false)
   const [mapsStatus, setMapsStatus] = useState<MapsStatus>(() => GOOGLE_MAPS_KEY ? 'idle' : 'no-key')
   const [mapsError, setMapsError] = useState<string | null>(null)
@@ -274,7 +276,8 @@ export default function Round() {
         .select().single()
       if (error) throw error
 
-      const teeHoles = (selectedCourse.holes ?? holeData).map((h) => ({
+      const allHoles = selectedCourse.holes ?? holeData
+      const teeHoles = allHoles.slice(holeStart, holeStart + holeCount).map((h) => ({
         par: h.par,
         yardage: h.yardage[teeColor] || h.yardage.white || 400,
       }))
@@ -559,6 +562,36 @@ export default function Round() {
                   })}
                 </div>
               </div>
+              {/* Holes toggle */}
+              <div>
+                <p className="font-ui text-chalk/50 text-xs uppercase tracking-widest mb-2">Holes</p>
+                <div
+                  className="flex rounded-lg overflow-hidden"
+                  style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(14,22,14,0.6)' }}
+                >
+                  {([
+                    { label: '18 Holes', count: 18 as const, start: 0 as const },
+                    { label: 'Front 9',  count: 9  as const, start: 0 as const },
+                    { label: 'Back 9',   count: 9  as const, start: 9 as const },
+                  ]).map(({ label, count, start }) => {
+                    const active = holeCount === count && holeStart === start
+                    return (
+                      <button
+                        key={label}
+                        onClick={() => { setHoleCount(count); setHoleStart(start) }}
+                        className="flex-1 py-2.5 font-ui text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer"
+                        style={{
+                          background: active ? '#C9A96E' : 'transparent',
+                          color: active ? '#0E160E' : 'rgba(138,158,138,0.7)',
+                        }}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
               <Button onClick={beginRound} disabled={saving} className="w-full" size="lg">
                 {saving ? 'Creating round…' : 'Tee It Up →'}
               </Button>
