@@ -2,8 +2,17 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.tsx'
+
+registerSW({ onOfflineReady() {}, onNeedRefresh() {} })
+
+// Reload once when a new service worker takes control so the fresh JS bundle
+// loads instead of the stale cached version.
+navigator.serviceWorker?.addEventListener('controllerchange', () => {
+  window.location.reload()
+})
 
 const queryClient = new QueryClient({
   defaultOptions: {

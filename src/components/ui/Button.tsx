@@ -8,25 +8,21 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'primary', size = 'md', children, ...props }, ref) => {
-    const base = 'font-ui font-medium rounded-lg transition-all active:scale-95 select-none'
+    const base =
+      'font-ui font-semibold uppercase tracking-wider transition-all duration-150 ' +
+      'active:scale-[0.96] select-none cursor-pointer disabled:opacity-40 ' +
+      'disabled:pointer-events-none focus:outline-none focus-visible:ring-2 ' +
+      'focus-visible:ring-sand/60'
     const variants = {
-      primary: `
-        bg-gradient-to-b from-sand to-[#b8944e]
-        text-ink shadow-glow
-        after:absolute after:inset-0 after:rounded-lg
-        after:bg-gradient-to-r after:from-transparent after:via-white/20 after:to-transparent
-        after:translate-x-[-100%] active:after:translate-x-[100%]
-        after:transition-transform after:duration-500
-        relative overflow-hidden
-      `,
-      secondary: 'bg-rough text-chalk border border-white/10 hover:bg-rough/80',
-      ghost: 'text-chalk/70 hover:text-chalk hover:bg-white/5',
-      danger: 'bg-bogey/20 text-bogey border border-bogey/30 hover:bg-bogey/30',
+      primary:   'bg-sand text-ink hover:bg-sandlight shadow-glow-sm',
+      secondary: 'bg-deeprough text-chalk border border-white/10 hover:border-sand/30 hover:text-sand',
+      ghost:     'text-fog hover:text-chalk hover:bg-white/5',
+      danger:    'bg-bogey/20 text-bogey border border-bogey/30 hover:bg-bogey/30',
     }
     const sizes = {
-      sm: 'text-xs px-3 py-2 min-h-[36px]',
-      md: 'text-sm px-4 py-2.5 min-h-[44px]',
-      lg: 'text-base px-6 py-3 min-h-[52px]',
+      sm: 'text-xs px-3 py-2 min-h-[36px] rounded',
+      md: 'text-sm px-4 py-2.5 min-h-[44px] rounded',
+      lg: 'text-sm px-6 py-3 min-h-[52px] rounded',
     }
     return (
       <button

@@ -1,8 +1,11 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400&family=Instrument+Serif:ital@0;1&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Archivo+Narrow:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-* {
+/* ── Reset & base ─────────────────────────────────────────────── */
+*, *::before, *::after {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
 }
@@ -10,36 +13,135 @@
 html, body {
   margin: 0;
   padding: 0;
-  background-color: #0d1a0d;
+  background-color: #0E160E;
   overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
 }
 
 #root {
   min-height: 100dvh;
-  background-color: #0d1a0d;
+  background-color: #0E160E;
+  position: relative;
 }
 
-/* Hide scrollbar but keep scroll */
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-
-/* Snap scroll for hole cards */
-.snap-x {
-  scroll-snap-type: x mandatory;
-}
-.snap-start {
-  scroll-snap-align: start;
+/* ── Noise texture overlay ────────────────────────────────────── */
+/* Applied via a fixed pseudo-element so it floats above all surfaces */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 128px 128px;
 }
 
-/* Topo background pattern */
+/* ── Scrollbar ────────────────────────────────────────────────── */
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+/* ── Snap scroll ──────────────────────────────────────────────── */
+.snap-x { scroll-snap-type: x mandatory; }
+.snap-start { scroll-snap-align: start; }
+
+/* ── Card surface ─────────────────────────────────────────────── */
+.card-surface {
+  background: radial-gradient(ellipse at 30% 20%, #243824 0%, #1B2F1B 100%);
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.card-deep {
+  background: radial-gradient(ellipse at 50% 0%, #1B2F1B 0%, #161F16 100%);
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+/* ── Section header rule ──────────────────────────────────────── */
+.section-rule::after {
+  content: '';
+  display: block;
+  width: 40px;
+  height: 1px;
+  background: #C9A96E;
+  margin-top: 6px;
+}
+
+/* ── GPS player dot ───────────────────────────────────────────── */
+.gps-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #C9A96E;
+  border: 2px solid #EDE9DF;
+  box-shadow: 0 0 0 6px rgba(201,169,110,0.25);
+  animation: gpsRing 2s ease-in-out infinite;
+}
+
+@keyframes gpsRing {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(201,169,110,0.3); }
+  50%       { box-shadow: 0 0 0 12px rgba(201,169,110,0); }
+}
+
+/* ── Score flip animation ─────────────────────────────────────── */
+.flip-enter { animation: flipIn 0.25s ease-in-out; }
+@keyframes flipIn {
+  0%   { transform: rotateX(-90deg); opacity: 0; }
+  100% { transform: rotateX(0deg);   opacity: 1; }
+}
+
+/* ── Shimmer skeleton ─────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, #243824 25%, #2d4a2d 50%, #243824 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+/* ── Distance display pulse ───────────────────────────────────── */
+.dist-active { animation: distPulse 2s ease-in-out infinite; }
+@keyframes distPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.82; }
+}
+
+/* ── Bottom sheet easing ──────────────────────────────────────── */
+.sheet-enter { animation: sheetUp 0.35s cubic-bezier(0.32,0.72,0,1) forwards; }
+.sheet-exit  { animation: sheetDown 0.3s cubic-bezier(0.32,0.72,0,1) forwards; }
+@keyframes sheetUp   { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes sheetDown { from { transform: translateY(0); }    to { transform: translateY(100%); } }
+
+/* ── Staggered fade-up list ───────────────────────────────────── */
+.stagger-item {
+  opacity: 0;
+  animation: fadeUp 0.3s ease-out forwards;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.stagger-item:nth-child(1)  { animation-delay: 0ms; }
+.stagger-item:nth-child(2)  { animation-delay: 40ms; }
+.stagger-item:nth-child(3)  { animation-delay: 80ms; }
+.stagger-item:nth-child(4)  { animation-delay: 120ms; }
+.stagger-item:nth-child(5)  { animation-delay: 160ms; }
+.stagger-item:nth-child(6)  { animation-delay: 200ms; }
+
+/* ── Topographic background ───────────────────────────────────── */
 .bg-topo {
   background-image: url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 20 Q20 15 40 20 Q60 25 80 20 Q100 15 120 20' fill='none' stroke='%23ffffff' stroke-width='0.6' opacity='0.04'/%3E%3Cpath d='M0 40 Q20 35 40 40 Q60 45 80 40 Q100 35 120 40' fill='none' stroke='%23ffffff' stroke-width='0.6' opacity='0.04'/%3E%3Cpath d='M0 60 Q20 55 40 60 Q60 65 80 60 Q100 55 120 60' fill='none' stroke='%23ffffff' stroke-width='0.6' opacity='0.04'/%3E%3Cpath d='M0 80 Q20 75 40 80 Q60 85 80 80 Q100 75 120 80' fill='none' stroke='%23ffffff' stroke-width='0.6' opacity='0.04'/%3E%3Cpath d='M0 100 Q20 95 40 100 Q60 105 80 100 Q100 95 120 100' fill='none' stroke='%23ffffff' stroke-width='0.6' opacity='0.04'/%3E%3C/svg%3E");
   background-repeat: repeat;
 }
+
+/* ── Prevent pull-to-refresh on round screen ──────────────────── */
+.round-screen { overscroll-behavior-y: contain; }
+
+/* ── Google Maps overrides for dark satellite ─────────────────── */
+.gm-style .gm-style-iw-d { background: #1B2F1B !important; color: #EDE9DF !important; }
+.gm-ui-hover-effect { display: none !important; }

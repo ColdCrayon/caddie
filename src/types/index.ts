@@ -11,17 +11,21 @@ export interface HoleData {
   number: number
   par: number
   yardage: { black: number; blue: number; white: number; red: number }
+  handicap?: number
 }
 
 export interface Course {
   id: string
   name: string
   location: string
-  google_place_id: string
-  lat: number
-  lng: number
+  google_place_id: string | null
+  lat: number | null
+  lng: number | null
   holes: HoleData[]
   tee_options: string[]
+  slope_rating?: Record<string, number>
+  course_rating?: Record<string, number>
+  api_course_id?: number | null
   created_at: string
 }
 
@@ -181,6 +185,8 @@ export interface ActiveRoundState {
   roundId: string | null
   courseId: string | null
   courseName: string
+  courseLat: number | null
+  courseLng: number | null
   teeColor: TeeColor
   date: string
   holes: ActiveHoleState[]

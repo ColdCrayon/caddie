@@ -1,24 +1,17 @@
-import type { ActiveHoleState, TeeColor } from '../../types'
+import type { ActiveHoleState, TeeColor } from '../../types' // TeeColor kept for prop type
 import { useRoundStore } from '../../stores/roundStore'
 import { getScoreLabel } from '../../lib/handicap'
 import { ScoreButton } from './ScoreButton'
 import { ScoreLabel } from './ScoreLabel'
 import { Card } from '../ui/Card'
 
-const TEE_COLORS: { value: TeeColor; label: string; className: string }[] = [
-  { value: 'black', label: 'BLK', className: 'bg-black border-white/20 text-white' },
-  { value: 'blue', label: 'BLU', className: 'bg-sky/80 border-sky text-ink' },
-  { value: 'white', label: 'WHT', className: 'bg-white border-white text-ink' },
-  { value: 'red', label: 'RED', className: 'bg-bogey border-bogey text-white' },
-]
-
 interface HoleCardProps {
   hole: ActiveHoleState
   index: number
-  teeColor: TeeColor
+  teeColor?: TeeColor
 }
 
-export function HoleCard({ hole, index, teeColor }: HoleCardProps) {
+export function HoleCard({ hole, index }: HoleCardProps) {
   const updateHole = useRoundStore((s) => s.updateHole)
 
   const scoreLabel = hole.strokes > 0 ? getScoreLabel(hole.strokes, hole.par) : undefined
@@ -27,46 +20,50 @@ export function HoleCard({ hole, index, teeColor }: HoleCardProps) {
     updateHole(index, { [field]: !hole[field] })
   }
 
-  const yardage = hole.yardage
-
   return (
-    <Card className="mx-4 p-5 space-y-5">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="font-ui text-chalk/50 text-xs uppercase tracking-widest">Hole</p>
-          <p className="font-mono text-sand text-5xl font-bold leading-none">{hole.holeNumber}</p>
-        </div>
-        <div className="text-right">
-          <p className="font-ui text-chalk/50 text-xs uppercase tracking-widest">Par</p>
-          <p className="font-mono text-chalk text-3xl font-bold">{hole.par}</p>
-        </div>
-        <div className="text-right">
-          <p className="font-ui text-chalk/50 text-xs uppercase tracking-widest">Yards</p>
-          <p className="font-mono text-chalk text-3xl font-bold">{yardage}</p>
-        </div>
-      </div>
+    <Card className="mx-4 overflow-hidden">
+      {/* Hole number + meta header */}
+      <div className="relative px-5 pt-5 pb-4">
+        {/* Decorative ghost number */}
+        <span
+          className="absolute right-4 top-0 font-display font-bold text-chalk/[0.04] select-none pointer-events-none leading-none"
+          style={{ fontSize: 120 }}
+          aria-hidden
+        >
+          {hole.holeNumber}
+        </span>
 
-      {/* Tee selector */}
-      <div>
-        <p className="font-ui text-chalk/40 text-xs uppercase tracking-widest mb-2">Tee</p>
-        <div className="flex gap-2">
-          {TEE_COLORS.map((t) => (
-            <button
-              key={t.value}
-              onClick={() => {}} // tee color is round-level, handled above
-              className={`px-3 py-1.5 rounded-lg border text-xs font-ui font-semibold
-                ${teeColor === t.value ? `${t.className} ring-1 ring-sand` : 'bg-rough/50 border-white/10 text-chalk/40'}
-              `}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="relative flex items-end justify-between">
+          <div>
+            <p className="font-ui text-fog text-xs uppercase tracking-widest mb-1">Hole</p>
+            <p className="font-display text-sand leading-none" style={{ fontSize: 64, fontWeight: 700 }}>
+              {hole.holeNumber}
+            </p>
+          </div>
+
+          <div className="flex gap-6 pb-2">
+            <div className="text-right">
+              <p className="font-ui text-fog text-xs uppercase tracking-widest">Par</p>
+              <p className="font-display text-chalk text-3xl font-bold">{hole.par}</p>
+            </div>
+            <div className="text-right">
+              <p className="font-ui text-fog text-xs uppercase tracking-widest">Yards</p>
+              <p className="font-display text-chalk text-3xl font-bold">
+                {hole.yardage ?? '—'}
+              </p>
+            </div>
+          </div>
         </div>
+
+        {/* Sand rule line */}
+        <div className="mt-1" style={{ width: 40, height: 1, background: '#C9A96E' }} />
       </div>
 
       {/* Score counters */}
-      <div className="flex justify-around pt-1">
+      <div
+        className="px-5 py-6 flex justify-around"
+        style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+      >
         <ScoreButton
           label="Strokes"
           value={hole.strokes}
@@ -74,6 +71,7 @@ export function HoleCard({ hole, index, teeColor }: HoleCardProps) {
           onDecrement={() => updateHole(index, { strokes: Math.max(0, hole.strokes - 1) })}
           onIncrement={() => updateHole(index, { strokes: hole.strokes + 1 })}
         />
+        <div style={{ width: 1, background: 'rgba(255,255,255,0.06)' }} />
         <ScoreButton
           label="Putts"
           value={hole.putts}
@@ -83,15 +81,23 @@ export function HoleCard({ hole, index, teeColor }: HoleCardProps) {
         />
       </div>
 
-      {/* Score label */}
+      {/* Score label badge */}
       {scoreLabel && (
-        <div className="flex justify-center">
-          <ScoreLabel label={scoreLabel} />
+        <div
+          className="flex justify-center pb-4"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+        >
+          <div className="pt-4">
+            <ScoreLabel label={scoreLabel} />
+          </div>
         </div>
       )}
 
       {/* Stat toggles */}
-      <div className="grid grid-cols-3 gap-2">
+      <div
+        className="grid grid-cols-3 gap-2 px-5 pb-5"
+        style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: scoreLabel ? 0 : 20 }}
+      >
         {[
           { key: 'fairwayHit' as const, label: 'FIR', value: hole.fairwayHit },
           { key: 'gir' as const, label: 'GIR', value: hole.gir },
@@ -100,11 +106,13 @@ export function HoleCard({ hole, index, teeColor }: HoleCardProps) {
           <button
             key={key}
             onClick={() => toggle(key)}
-            className={`py-2.5 rounded-xl border font-ui text-sm font-medium transition-colors
-              ${value
-                ? 'bg-birdie/20 border-birdie/40 text-birdie'
-                : 'bg-rough/50 border-white/10 text-chalk/40'
-              }`}
+            className="py-3 rounded font-ui text-sm font-semibold uppercase tracking-wider
+                       transition-all duration-150 active:scale-[0.96] cursor-pointer"
+            style={{
+              border: value ? '1px solid rgba(74,222,128,0.4)' : '1px solid rgba(255,255,255,0.08)',
+              background: value ? 'rgba(74,222,128,0.12)' : 'rgba(22,31,22,0.6)',
+              color: value ? '#4ADE80' : 'rgba(237,233,223,0.35)',
+            }}
           >
             {label}
           </button>

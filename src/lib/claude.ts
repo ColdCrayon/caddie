@@ -75,6 +75,27 @@ export async function fetchWeeklyDigest(data: Record<string, unknown>): Promise<
   return res.text()
 }
 
+export async function streamAIRequest(
+  type: string,
+  payload: Record<string, unknown>,
+  onChunk: (text: string) => void
+): Promise<void> {
+  const headers = await getAuthHeader()
+  const res = await fetch(EDGE_FN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({ type, payload }),
+  })
+  if (!res.ok || !res.body) throw new Error('AI proxy error')
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    onChunk(decoder.decode(value, { stream: true }))
+  }
+}
+
 export async function fetchShotReaction(payload: Record<string, unknown>): Promise<string> {
   const headers = await getAuthHeader()
   const res = await fetch(EDGE_FN_URL, {

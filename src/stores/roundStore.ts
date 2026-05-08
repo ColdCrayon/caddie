@@ -19,6 +19,8 @@ interface RoundStore {
     roundId: string
     courseId: string
     courseName: string
+    courseLat?: number | null
+    courseLng?: number | null
     teeColor: TeeColor
     holes: { par: number; yardage: number }[]
   }) => void
@@ -36,7 +38,7 @@ export const useRoundStore = create<RoundStore>()(
       activeRound: null,
       isOffline: false,
 
-      startRound: ({ roundId, courseId, courseName, teeColor, holes }) => {
+      startRound: ({ roundId, courseId, courseName, courseLat, courseLng, teeColor, holes }) => {
         const holeStates: ActiveHoleState[] = holes.map((h, i) => ({
           holeNumber: i + 1,
           par: h.par,
@@ -48,6 +50,8 @@ export const useRoundStore = create<RoundStore>()(
             roundId,
             courseId,
             courseName,
+            courseLat: courseLat ?? null,
+            courseLng: courseLng ?? null,
             teeColor,
             date: new Date().toISOString(),
             holes: holeStates,

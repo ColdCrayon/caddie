@@ -1,26 +1,92 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { HoleCard } from '../components/round/HoleCard'
+import { CourseMap } from '../components/round/CourseMap'
+import { DistanceDisplay } from '../components/round/DistanceDisplay'
 import { ShotLogger } from '../components/round/ShotLogger'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { useRoundStore } from '../stores/roundStore'
 import { getScoreLabel } from '../lib/handicap'
+import { watchPosition, clearWatch, getDistancesToGreen, type GreenDistances } from '../lib/gps'
 import { supabase } from '../lib/supabase'
 import { useUserStore } from '../stores/userStore'
+
+// SVG icons
+const MapIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/>
+    <line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/>
+  </svg>
+)
+const ShotIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+  </svg>
+)
+const ScorecardIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="5" y="2" width="14" height="20" rx="2"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="13" y2="15"/>
+  </svg>
+)
+const GpsIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+  </svg>
+)
+
+type View = 'gps' | 'scorecard'
 
 export default function RoundActive() {
   const navigate = useNavigate()
   const user = useUserStore((s) => s.user)
   const { activeRound, isOffline, setCurrentHole, clearRound, getScoreToPar, getCompletedHoles } = useRoundStore()
 
+  const [view, setView] = useState<View>('gps')
   const [shotLoggerOpen, setShotLoggerOpen] = useState(false)
+  const [mapOpen, setMapOpen] = useState(false)
   const [finishing, setFinishing] = useState(false)
+  const [distances, setDistances] = useState<GreenDistances | null>(null)
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | undefined>()
+  const [gpsUpdating, setGpsUpdating] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const watchIdRef = useRef<number>(-1)
 
   const scoreToPar = getScoreToPar()
   const completedHoles = getCompletedHoles()
   const currentIdx = activeRound?.currentHoleIndex ?? 0
+
+  // GPS watch for distance display
+  useEffect(() => {
+    if (!activeRound) return
+
+    watchIdRef.current = watchPosition(
+      (pos) => {
+        setGpsAccuracy(pos.accuracy)
+        setGpsUpdating(true)
+        const currentHole = useRoundStore.getState().activeRound?.holes[
+          useRoundStore.getState().activeRound?.currentHoleIndex ?? 0
+        ]
+        if (currentHole?.pinLat && currentHole?.pinLng) {
+          setDistances(
+            getDistancesToGreen(pos.lat, pos.lng, { lat: currentHole.pinLat, lng: currentHole.pinLng })
+          )
+        }
+        setTimeout(() => setGpsUpdating(false), 800)
+      },
+      () => { setGpsUpdating(false) }
+    )
+
+    return () => clearWatch(watchIdRef.current)
+  }, [activeRound])
+
+  // Recalculate distances when current hole pin changes
+  const currentHole = activeRound?.holes[currentIdx]
+  useEffect(() => {
+    if (!currentHole?.pinLat || !currentHole?.pinLng) {
+      setDistances(null)
+    }
+  }, [currentHole?.pinLat, currentHole?.pinLng])
 
   // Swipe detection
   const touchStartX = useRef(0)
@@ -56,8 +122,6 @@ export default function RoundActive() {
     try {
       const holes = activeRound.holes
       const totalScore = holes.reduce((t, h) => t + (h.strokes || 0), 0)
-
-      // Save holes played
       const holesData = holes
         .filter((h) => h.strokes > 0)
         .map((h) => ({
@@ -92,40 +156,45 @@ export default function RoundActive() {
     return null
   }
 
-  const currentHole = activeRound.holes[currentIdx]
+  const scoreLabel = scoreToPar === 0 ? 'E' : scoreToPar > 0 ? `+${scoreToPar}` : String(scoreToPar)
 
   return (
     <div
-      className="max-w-[430px] mx-auto min-h-screen bg-fairway overflow-hidden"
-      style={{ overscrollBehavior: 'none' }}
+      className="max-w-[430px] mx-auto min-h-screen overflow-hidden round-screen"
+      style={{ background: '#0E160E' }}
     >
       {/* Sticky header */}
       <header
-        className="sticky top-0 z-20 bg-fairway/95 backdrop-blur-xl border-b border-white/5 px-4 py-3"
-        style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}
+        className="sticky top-0 z-20 border-b border-white/5 px-4 py-3"
+        style={{
+          background: 'rgba(22,31,22,0.97)',
+          backdropFilter: 'blur(12px)',
+          paddingTop: 'max(12px, env(safe-area-inset-top))',
+        }}
       >
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-ui text-chalk/50 text-xs">{activeRound.courseName}</p>
-            <p className="font-display text-chalk font-semibold text-sm">
+            <p className="font-ui text-fog text-xs uppercase tracking-widest">{activeRound.courseName}</p>
+            <p className="font-serif text-chalk text-base">
               {completedHoles > 0
-                ? `Through ${completedHoles} — ${scoreToPar === 0 ? 'E' : scoreToPar > 0 ? `+${scoreToPar}` : scoreToPar}`
+                ? `Through ${completedHoles} · ${scoreLabel}`
                 : 'Round in progress'}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {isOffline && <Badge variant="offline">Offline</Badge>}
             <button
               onClick={() => navigate('/round')}
-              className="font-ui text-chalk/40 text-sm"
+              className="text-fog/60 text-xl leading-none cursor-pointer"
+              aria-label="Exit round"
             >
               ✕
             </button>
           </div>
         </div>
 
-        {/* Hole dots */}
-        <div className="flex gap-1 mt-2 overflow-x-auto pb-0.5">
+        {/* Hole dots progress */}
+        <div className="flex gap-1 mt-2.5 overflow-x-auto pb-0.5 scrollbar-hide">
           {activeRound.holes.map((h, i) => (
             <button
               key={i}
@@ -133,53 +202,139 @@ export default function RoundActive() {
                 setCurrentHole(i)
                 scrollRef.current?.scrollTo({ left: i * scrollRef.current.offsetWidth, behavior: 'smooth' })
               }}
-              className={`flex-shrink-0 h-1.5 rounded-full transition-all ${
-                i === currentIdx
-                  ? 'w-6 bg-sand'
+              className="flex-shrink-0 h-1.5 rounded-full transition-all duration-200 cursor-pointer"
+              style={{
+                width: i === currentIdx ? 24 : 8,
+                background: i === currentIdx
+                  ? '#C9A96E'
                   : h.strokes > 0
-                  ? 'w-2 bg-chalk/40'
-                  : 'w-2 bg-white/10'
-              }`}
+                  ? 'rgba(237,233,223,0.35)'
+                  : 'rgba(255,255,255,0.1)',
+              }}
             />
+          ))}
+        </div>
+
+        {/* View toggle */}
+        <div
+          className="flex mt-3 rounded-lg overflow-hidden"
+          style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(14,22,14,0.6)' }}
+        >
+          {([
+            { id: 'gps', icon: <GpsIcon />, label: 'GPS' },
+            { id: 'scorecard', icon: <ScorecardIcon />, label: 'Card' },
+          ] as const).map(({ id, icon, label }) => (
+            <button
+              key={id}
+              onClick={() => setView(id)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 font-ui text-xs font-semibold uppercase tracking-wider transition-all duration-150 cursor-pointer"
+              style={{
+                background: view === id ? '#C9A96E' : 'transparent',
+                color: view === id ? '#0E160E' : 'rgba(138,158,138,0.7)',
+              }}
+            >
+              {icon}
+              {label}
+            </button>
           ))}
         </div>
       </header>
 
-      {/* Swipeable hole cards */}
-      <div
-        ref={scrollRef}
-        className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide"
-        style={{ scrollbarWidth: 'none', paddingBottom: 'calc(140px + env(safe-area-inset-bottom))' }}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        {activeRound.holes.map((hole, i) => (
-          <div key={i} className="w-full flex-shrink-0 snap-start py-4">
-            <HoleCard hole={hole} index={i} teeColor={activeRound.teeColor} />
+      {/* GPS View */}
+      {view === 'gps' && (
+        <div className="px-4 pt-4 pb-4 space-y-3">
+          {/* Distance display card */}
+          <div
+            className="rounded-xl overflow-hidden"
+            style={{ background: 'radial-gradient(ellipse at 30% 20%, #243824 0%, #1B2F1B 100%)', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <DistanceDisplay
+              distances={distances}
+              updating={gpsUpdating}
+              accuracy={gpsAccuracy}
+            />
           </div>
-        ))}
-      </div>
+
+          {/* Current hole quick stats */}
+          {currentHole && (
+            <div
+              className="rounded-xl px-5 py-4 flex justify-between items-center"
+              style={{ background: 'radial-gradient(ellipse at 30% 20%, #243824 0%, #1B2F1B 100%)', border: '1px solid rgba(255,255,255,0.06)' }}
+            >
+              <div className="text-center">
+                <p className="font-ui text-fog text-xs uppercase tracking-widest mb-1">Hole</p>
+                <p className="font-display text-sand" style={{ fontSize: 36, lineHeight: 1 }}>
+                  {currentHole.holeNumber}
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="font-ui text-fog text-xs uppercase tracking-widest mb-1">Par</p>
+                <p className="font-display text-chalk text-2xl">{currentHole.par}</p>
+              </div>
+              <div className="text-center">
+                <p className="font-ui text-fog text-xs uppercase tracking-widest mb-1">Strokes</p>
+                <p className="font-display text-chalk text-2xl">{currentHole.strokes || '—'}</p>
+              </div>
+              <div className="text-center">
+                <p className="font-ui text-fog text-xs uppercase tracking-widest mb-1">Yards</p>
+                <p className="font-display text-chalk text-2xl">{currentHole.yardage}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Scorecard View */}
+      {view === 'scorecard' && (
+        <div
+          ref={scrollRef}
+          className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide"
+          style={{ scrollbarWidth: 'none', paddingBottom: 'calc(140px + env(safe-area-inset-bottom))' }}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
+          {activeRound.holes.map((hole, i) => (
+            <div key={i} className="w-full flex-shrink-0 snap-start py-4">
+              <HoleCard hole={hole} index={i} teeColor={activeRound.teeColor} />
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Bottom controls */}
       <div
-        className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto z-30 bg-ink/95 backdrop-blur-xl
-                   border-t border-white/10 px-4 py-3 space-y-2"
-        style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' }}
+        className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto z-30 border-t border-white/10 px-4 pt-3"
+        style={{
+          background: 'rgba(14,22,14,0.97)',
+          backdropFilter: 'blur(12px)',
+          paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
+        }}
       >
-        <Button
-          onClick={() => setShotLoggerOpen(true)}
-          variant="secondary"
-          className="w-full"
-        >
-          📍 Log Shot
-        </Button>
+        <div className="flex gap-2 mb-2">
+          <button
+            onClick={() => setMapOpen(true)}
+            className="flex-1 flex items-center justify-center gap-2 py-3 rounded font-ui text-sm font-semibold uppercase tracking-wider transition-all active:scale-[0.96] cursor-pointer"
+            style={{ background: '#243824', border: '1px solid rgba(255,255,255,0.10)', color: '#EDE9DF' }}
+          >
+            <MapIcon />
+            Satellite
+          </button>
+          <button
+            onClick={() => setShotLoggerOpen(true)}
+            className="flex-1 flex items-center justify-center gap-2 py-3 rounded font-ui text-sm font-semibold uppercase tracking-wider transition-all active:scale-[0.96] cursor-pointer"
+            style={{ background: '#243824', border: '1px solid rgba(255,255,255,0.10)', color: '#EDE9DF' }}
+          >
+            <ShotIcon />
+            Log Shot
+          </button>
+        </div>
         {completedHoles >= 9 && (
           <Button
             onClick={finishRound}
             disabled={finishing}
             className="w-full"
           >
-            {finishing ? 'Saving round…' : 'Finish Round →'}
+            {finishing ? 'Saving round…' : 'Finish Round'}
           </Button>
         )}
       </div>
@@ -187,9 +342,24 @@ export default function RoundActive() {
       <ShotLogger
         open={shotLoggerOpen}
         onClose={() => setShotLoggerOpen(false)}
-        holePar={currentHole.par}
-        holeNumber={currentHole.holeNumber}
+        holePar={currentHole?.par ?? 4}
+        holeNumber={currentHole?.holeNumber ?? 1}
+        courseLat={activeRound.courseLat ?? undefined}
+        courseLng={activeRound.courseLng ?? undefined}
       />
+
+      {mapOpen && (
+        <CourseMap
+          hole={currentHole!}
+          teeColor={activeRound.teeColor}
+          courseLat={activeRound.courseLat ?? null}
+          courseLng={activeRound.courseLng ?? null}
+          onClose={() => setMapOpen(false)}
+          onPinSet={(lat, lng) => {
+            useRoundStore.getState().updateHole(currentIdx, { pinLat: lat, pinLng: lng })
+          }}
+        />
+      )}
     </div>
   )
 }
