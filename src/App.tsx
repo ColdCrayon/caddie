@@ -202,10 +202,7 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [setUser])
 
-  const showNav =
-    SHOW_NAV_ROUTES.some((r) =>
-      r === '/' ? location.pathname === '/' : location.pathname.startsWith(r)
-    ) && !!user
+  const showNav = SHOW_NAV_ROUTES.includes(location.pathname) && !!user
 
   if (authLoading) return <LoadingScreen />
   if (connError) return <ConnectionError url={supabaseUrl} detail={connError} />

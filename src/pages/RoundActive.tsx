@@ -314,10 +314,14 @@ export default function RoundActive() {
           <button
             onClick={() => setMapOpen(true)}
             className="flex-1 flex items-center justify-center gap-2 py-3 rounded font-ui text-sm font-semibold uppercase tracking-wider transition-all active:scale-[0.96] cursor-pointer"
-            style={{ background: '#243824', border: '1px solid rgba(255,255,255,0.10)', color: '#EDE9DF' }}
+            style={{
+              background: distances ? '#243824' : 'rgba(201,169,110,0.12)',
+              border: distances ? '1px solid rgba(255,255,255,0.10)' : '1px solid rgba(201,169,110,0.35)',
+              color: distances ? '#EDE9DF' : '#C9A96E',
+            }}
           >
             <MapIcon />
-            Satellite
+            {distances ? 'Satellite' : 'Set Target'}
           </button>
           <button
             onClick={() => setShotLoggerOpen(true)}
