@@ -146,33 +146,34 @@ export function ShotLogger({ open, onClose, holePar, holeNumber, courseLat, cour
         {/* Distance to pin */}
         <div>
           <p className="font-ui text-fog text-xs uppercase tracking-widest mb-2">Distance to Pin</p>
-          <div className="flex gap-2">
+          {/* Grid: input takes remaining space, button is fixed 64px */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px', gap: 8 }}>
             <input
               type="number"
               value={distance}
               onChange={(e) => setDistance(e.target.value)}
-              placeholder="e.g. 150"
-              className="flex-1 rounded-lg px-4 py-3 font-display text-chalk text-2xl
-                         focus:outline-none focus:border-sand/50"
-              style={{ background: 'rgba(14,22,14,0.8)', border: '1px solid rgba(255,255,255,0.10)' }}
+              placeholder="150"
+              className="rounded-lg px-4 py-3 font-display text-chalk text-2xl focus:outline-none w-full"
+              style={{ background: 'rgba(14,22,14,0.8)', border: '1px solid rgba(255,255,255,0.10)', minWidth: 0 }}
             />
             <button
               onClick={handleGpsButton}
               disabled={gpsLoading}
-              className="flex items-center gap-1.5 px-4 py-3 rounded-lg font-ui text-xs font-semibold
-                         uppercase tracking-wider transition-all active:scale-[0.96] cursor-pointer"
+              className="flex flex-col items-center justify-center rounded-lg transition-all active:scale-[0.96] cursor-pointer"
               style={{
                 background: 'rgba(201,169,110,0.12)',
                 border: '1px solid rgba(201,169,110,0.3)',
                 color: '#C9A96E',
-                minWidth: 80,
+                gap: 2,
               }}
             >
               {gpsLoading
-                ? <span className="w-3 h-3 border border-sand border-t-transparent rounded-full animate-spin" />
+                ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
                 : <GpsIcon />
               }
-              {gpsLoading ? '' : 'GPS'}
+              <span style={{ fontSize: 9, fontFamily: 'Archivo Narrow, sans-serif', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                {gpsLoading ? '…' : 'GPS'}
+              </span>
             </button>
           </div>
           {gpsError && (

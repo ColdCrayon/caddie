@@ -61,7 +61,11 @@ export function HoleCard({ hole, index }: HoleCardProps) {
         <p className="font-ui text-fog text-xs uppercase tracking-widest">Total Strokes</p>
         <div className="flex items-center gap-6">
           <button
-            onClick={() => updateHole(index, { strokes: Math.max(0, hole.strokes - 1) })}
+            onClick={() => {
+              const next = Math.max(0, hole.strokes - 1)
+              // Putts can't exceed strokes — pull putts down with strokes if needed
+              updateHole(index, { strokes: next, putts: Math.min(hole.putts, next) })
+            }}
             disabled={hole.strokes <= 0}
             className="flex items-center justify-center transition-all duration-150 select-none
                        active:scale-[0.92] disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
