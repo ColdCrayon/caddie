@@ -68,12 +68,14 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
             : 'translateY(100%)',
           transition: dragging ? 'none' : 'transform 0.35s cubic-bezier(0.32,0.72,0,1)',
         }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
       >
-        {/* Drag handle */}
-        <div className="flex justify-center pt-3 pb-2">
+        {/* Drag handle — only this area triggers swipe-to-close */}
+        <div
+          className="flex justify-center pt-3 pb-2 cursor-grab active:cursor-grabbing"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
           <div
             className="rounded-full transition-colors"
             style={{ width: 36, height: 4, background: 'rgba(138,158,138,0.4)' }}
