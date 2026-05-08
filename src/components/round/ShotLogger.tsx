@@ -130,7 +130,7 @@ export function ShotLogger({ open, onClose, holePar, holeNumber, courseLat, cour
         (chunk) => setAiAdvice((prev) => prev + chunk)
       )
     } catch {
-      setAiAdvice('Angus is off the grid. Check your connection.')
+      setAiAdvice('Scottie is off the grid. Check your connection.')
     }
     setIsStreaming(false)
   }
@@ -246,19 +246,19 @@ export function ShotLogger({ open, onClose, holePar, holeNumber, courseLat, cour
             </div>
           ) : !weatherLoading ? (
             <p className="font-ui text-fog/40 text-xs">
-              Wind data unavailable — Angus will still give advice based on your distance and lie
+              Wind data unavailable — Scottie will still give advice based on your distance and lie
             </p>
           ) : null}
         </div>
 
-        {/* Ask Angus CTA */}
+        {/* Ask Scottie CTA */}
         <div>
           <Button
             onClick={getAdvice}
             disabled={isStreaming || !distance}
             className="w-full"
           >
-            {isStreaming ? 'Angus is thinking…' : 'Ask Angus for club advice'}
+            {isStreaming ? 'Scottie is thinking…' : 'Ask Scottie for club advice'}
           </Button>
           {!distance && (
             <p className="font-ui text-fog/40 text-xs text-center mt-2">
@@ -273,7 +273,7 @@ export function ShotLogger({ open, onClose, holePar, holeNumber, courseLat, cour
             className="rounded-xl p-4"
             style={{ background: 'rgba(22,31,22,0.8)', border: '1px solid rgba(201,169,110,0.15)' }}
           >
-            <p className="font-ui text-sand text-xs uppercase tracking-widest mb-2">Angus says</p>
+            <p className="font-ui text-sand text-xs uppercase tracking-widest mb-2">Scottie says</p>
             <p className="font-ui text-chalk text-sm leading-relaxed">
               {aiAdvice}
               {isStreaming && (

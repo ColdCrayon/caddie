@@ -1,4 +1,5 @@
-import { useRef, useState, useEffect, useCallback } from 'react'
+import { useRef, useState, useEffect, useCallback, useLayoutEffect } from 'react'
+import { motion, useMotionValue, animate } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { HoleCard } from '../components/round/HoleCard'
 import { CourseMap } from '../components/round/CourseMap'
@@ -49,7 +50,9 @@ export default function RoundActive() {
   const [distances, setDistances] = useState<GreenDistances | null>(null)
   const [gpsAccuracy, setGpsAccuracy] = useState<number | undefined>()
   const [gpsUpdating, setGpsUpdating] = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [cardWidth, setCardWidth] = useState(0)
+  const carouselRef = useRef<HTMLDivElement>(null)
+  const carouselX = useMotionValue(0)
   const watchIdRef = useRef<number>(-1)
 
   const scoreToPar = getScoreToPar()
@@ -88,20 +91,19 @@ export default function RoundActive() {
     }
   }, [currentHole?.pinLat, currentHole?.pinLng])
 
-  // Swipe detection
-  const touchStartX = useRef(0)
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX
-  }
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    const delta = e.changedTouches[0].clientX - touchStartX.current
-    if (Math.abs(delta) < 50 || !activeRound) return
-    const next = delta < 0
-      ? Math.min(currentIdx + 1, 17)
-      : Math.max(currentIdx - 1, 0)
-    setCurrentHole(next)
-    scrollRef.current?.scrollTo({ left: next * window.innerWidth, behavior: 'smooth' })
-  }
+  // Measure card width on mount and resize
+  useLayoutEffect(() => {
+    const measure = () => setCardWidth(carouselRef.current?.offsetWidth ?? Math.min(window.innerWidth, 430))
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+
+  // Snap carousel to current hole with spring animation
+  useEffect(() => {
+    if (cardWidth === 0) return
+    animate(carouselX, -currentIdx * cardWidth, { type: 'spring', stiffness: 320, damping: 32 })
+  }, [currentIdx, cardWidth, carouselX])
 
   // Online/offline detection
   useEffect(() => {
@@ -198,10 +200,7 @@ export default function RoundActive() {
           {activeRound.holes.map((h, i) => (
             <button
               key={i}
-              onClick={() => {
-                setCurrentHole(i)
-                scrollRef.current?.scrollTo({ left: i * scrollRef.current.offsetWidth, behavior: 'smooth' })
-              }}
+              onClick={() => setCurrentHole(i)}
               className="flex-shrink-0 h-1.5 rounded-full transition-all duration-200 cursor-pointer"
               style={{
                 width: i === currentIdx ? 24 : 8,
@@ -284,20 +283,37 @@ export default function RoundActive() {
         </div>
       )}
 
-      {/* Scorecard View */}
+      {/* Scorecard View — Framer Motion spring carousel */}
       {view === 'scorecard' && (
         <div
-          ref={scrollRef}
-          className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide"
-          style={{ scrollbarWidth: 'none', paddingBottom: 'calc(140px + env(safe-area-inset-bottom))' }}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
+          ref={carouselRef}
+          className="overflow-hidden"
+          style={{ paddingBottom: 'calc(140px + env(safe-area-inset-bottom))' }}
         >
-          {activeRound.holes.map((hole, i) => (
-            <div key={i} className="w-full flex-shrink-0 snap-start py-4">
-              <HoleCard hole={hole} index={i} teeColor={activeRound.teeColor} />
-            </div>
-          ))}
+          <motion.div
+            drag="x"
+            style={{ x: carouselX, display: 'flex', willChange: 'transform' }}
+            dragConstraints={{
+              left: cardWidth > 0 ? -(17 * cardWidth) : 0,
+              right: 0,
+            }}
+            dragElastic={0.08}
+            dragMomentum={false}
+            onDragEnd={(_, info) => {
+              const vel = info.velocity.x
+              const off = info.offset.x
+              let next = currentIdx
+              if (vel < -300 || off < -(cardWidth / 3)) next = Math.min(currentIdx + 1, 17)
+              else if (vel > 300 || off > cardWidth / 3)  next = Math.max(currentIdx - 1, 0)
+              setCurrentHole(next)
+            }}
+          >
+            {activeRound.holes.map((hole, i) => (
+              <div key={i} style={{ width: cardWidth, flexShrink: 0 }} className="py-4">
+                <HoleCard hole={hole} index={i} teeColor={activeRound.teeColor} />
+              </div>
+            ))}
+          </motion.div>
         </div>
       )}
 

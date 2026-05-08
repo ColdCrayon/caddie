@@ -9,13 +9,16 @@ interface BottomSheetProps {
 }
 
 export function BottomSheet({ open, onClose, title, children }: BottomSheetProps) {
-  const touchStartY = useRef(0)
-  const [dragging, setDragging] = useState(false)
   const [dragY, setDragY] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const dragYRef = useRef(0)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const handleRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (open) {
       document.body.style.overflow = 'hidden'
+      dragYRef.current = 0
       setDragY(0)
     } else {
       document.body.style.overflow = ''
@@ -23,19 +26,70 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
     return () => { document.body.style.overflow = '' }
   }, [open])
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY
-    setDragging(true)
-  }
-  const handleTouchMove = (e: React.TouchEvent) => {
-    const delta = e.touches[0].clientY - touchStartY.current
-    if (delta > 0) setDragY(delta)
-  }
-  const handleTouchEnd = () => {
-    setDragging(false)
-    if (dragY > 80) { onClose(); setDragY(0) }
-    else setDragY(0)
-  }
+  // Drag handle — always swipes to close
+  useEffect(() => {
+    const el = handleRef.current
+    if (!el) return
+    let startY = 0
+
+    const onStart = (e: TouchEvent) => { startY = e.touches[0].clientY; setDragging(true) }
+    const onMove = (e: TouchEvent) => {
+      const delta = Math.max(0, e.touches[0].clientY - startY)
+      dragYRef.current = delta
+      setDragY(delta)
+    }
+    const onEnd = () => {
+      setDragging(false)
+      if (dragYRef.current > 80) { onClose(); dragYRef.current = 0; setDragY(0) }
+      else { dragYRef.current = 0; setDragY(0) }
+    }
+
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchmove', onMove, { passive: true })
+    el.addEventListener('touchend', onEnd, { passive: true })
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove', onMove)
+      el.removeEventListener('touchend', onEnd)
+    }
+  }, [onClose])
+
+  // Content area — swipes to close only when scrolled to top
+  useEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+    let startY = 0
+    let swiping = false
+
+    const onStart = (e: TouchEvent) => { startY = e.touches[0].clientY; swiping = false }
+    const onMove = (e: TouchEvent) => {
+      const scrollTop = el.scrollTop
+      const delta = e.touches[0].clientY - startY
+      if (!swiping && scrollTop === 0 && delta > 8) { swiping = true; setDragging(true) }
+      if (swiping) {
+        e.preventDefault()
+        const y = Math.max(0, delta)
+        dragYRef.current = y
+        setDragY(y)
+      }
+    }
+    const onEnd = () => {
+      if (!swiping) return
+      swiping = false
+      setDragging(false)
+      if (dragYRef.current > 80) { onClose(); dragYRef.current = 0; setDragY(0) }
+      else { dragYRef.current = 0; setDragY(0) }
+    }
+
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchmove', onMove, { passive: false })
+    el.addEventListener('touchend', onEnd, { passive: true })
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove', onMove)
+      el.removeEventListener('touchend', onEnd)
+    }
+  }, [onClose])
 
   return createPortal(
     <>
@@ -66,29 +120,20 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
           borderTop: '1px solid rgba(255,255,255,0.09)',
           paddingBottom: 'env(safe-area-inset-bottom)',
           overflowX: 'hidden',
-          // iOS-style spring: fast in, gentle settle
           transform: open ? `translateY(${dragY}px)` : 'translateY(105%)',
-          transition: dragging
-            ? 'none'
-            : open
+          transition: dragging ? 'none' : open
             ? 'transform 0.42s cubic-bezier(0.25, 0.46, 0.45, 0.94)'
             : 'transform 0.30s cubic-bezier(0.55, 0, 1, 0.45)',
           boxShadow: '0 -4px 40px rgba(0,0,0,0.45)',
           willChange: 'transform',
         }}
       >
-        {/* Drag handle — only touch here triggers dismiss */}
+        {/* Drag handle */}
         <div
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 8px', cursor: 'grab' }}
+          ref={handleRef}
+          style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 8px', cursor: 'grab', touchAction: 'none' }}
         >
-          <div style={{
-            width: 36, height: 4, borderRadius: 2,
-            background: 'rgba(138,158,138,0.35)',
-            transition: 'background 0.15s',
-          }} />
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(138,158,138,0.35)' }} />
         </div>
 
         {title && (
@@ -99,9 +144,11 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
           </div>
         )}
 
-        {/* Scrollable content — no horizontal overflow */}
-        <div style={{ overflowY: 'auto', overflowX: 'hidden', maxHeight: '82vh', width: '100%' }}
-             className="scrollbar-hide">
+        <div
+          ref={contentRef}
+          style={{ overflowY: 'auto', overflowX: 'hidden', maxHeight: '82vh', width: '100%' }}
+          className="scrollbar-hide"
+        >
           {children}
         </div>
       </div>

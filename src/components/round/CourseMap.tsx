@@ -4,10 +4,54 @@ import type { ActiveHoleState, TeeColor } from '../../types'
 import { distanceBetween } from '../../lib/gps'
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined
-
 type PlaceMode = 'pin' | 'shot'
-
 interface LatLng { lat: number; lng: number }
+
+// ── Marker content factories ──────────────────────────────────────────────────
+
+function makePlayerEl(): HTMLDivElement {
+  const el = document.createElement('div')
+  // 0-height wrapper centers the dot at the exact lat/lng
+  el.style.cssText = 'width:20px;height:0;overflow:visible;position:relative;'
+  const dot = document.createElement('div')
+  dot.style.cssText = `
+    position:absolute;top:-10px;left:0;
+    width:20px;height:20px;border-radius:50%;
+    background:#4A90E2;border:3px solid white;
+    box-shadow:0 0 0 8px rgba(74,144,226,0.2);
+  `
+  el.appendChild(dot)
+  return el
+}
+
+function makeFlagEl(): HTMLDivElement {
+  const el = document.createElement('div')
+  // Flag anchors at its bottom (default behaviour) — correct for a flagpole
+  el.style.cssText = 'width:28px;height:28px;display:flex;align-items:flex-end;justify-content:center;font-size:22px;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.7));'
+  el.textContent = '🚩'
+  return el
+}
+
+function makeShotTargetEl(): HTMLDivElement {
+  const outer = document.createElement('div')
+  // 0-height wrapper: bottom-center of this 0px-tall element IS the lat/lng.
+  // The SVG is positioned with top:-22px so its visual center lands on the lat/lng.
+  outer.style.cssText = 'width:44px;height:0;overflow:visible;position:relative;cursor:grab;'
+  const inner = document.createElement('div')
+  inner.style.cssText = 'position:absolute;top:-22px;left:0;width:44px;height:44px;'
+  inner.innerHTML = `<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="22" cy="22" r="19" stroke="white" stroke-width="2" stroke-opacity="0.9"/>
+    <circle cx="22" cy="22" r="3.5" fill="white"/>
+    <line x1="22" y1="3" x2="22" y2="12" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    <line x1="22" y1="32" x2="22" y2="41" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    <line x1="3" y1="22" x2="12" y2="22" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    <line x1="32" y1="22" x2="41" y2="22" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  </svg>`
+  outer.appendChild(inner)
+  return outer
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
   hole: ActiveHoleState
@@ -18,42 +62,10 @@ interface Props {
   onPinSet?: (lat: number, lng: number) => void
 }
 
-// SVG crosshair for shot target
-function makeShotTargetEl(): HTMLDivElement {
-  const el = document.createElement('div')
-  el.style.cssText = 'width:44px;height:44px;position:relative;'
-  el.innerHTML = `<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="22" cy="22" r="19" stroke="white" stroke-width="2" stroke-opacity="0.9"/>
-    <circle cx="22" cy="22" r="3" fill="white"/>
-    <line x1="22" y1="4" x2="22" y2="13" stroke="white" stroke-width="2"/>
-    <line x1="22" y1="31" x2="22" y2="40" stroke="white" stroke-width="2"/>
-    <line x1="4" y1="22" x2="13" y2="22" stroke="white" stroke-width="2"/>
-    <line x1="31" y1="22" x2="40" y2="22" stroke="white" stroke-width="2"/>
-  </svg>`
-  return el
-}
-
-function makeFlagEl(): HTMLDivElement {
-  const el = document.createElement('div')
-  el.style.cssText = 'width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:24px;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.7));'
-  el.textContent = '🚩'
-  return el
-}
-
-function makePlayerEl(): HTMLDivElement {
-  const el = document.createElement('div')
-  el.style.cssText = `
-    width:18px;height:18px;border-radius:50%;
-    background:#4A90E2;border:3px solid white;
-    box-shadow:0 0 0 7px rgba(74,144,226,0.22);
-  `
-  return el
-}
-
 export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPinSet }: Props) {
   const mapDivRef = useRef<HTMLDivElement>(null)
 
-  // All map objects in refs — never cause re-renders
+  // Map object refs — mutations never cause re-renders
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -63,18 +75,24 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const shotMarkerRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const linePlayerToShotRef = useRef<any>(null)
+  const linePlayerShotRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lineShotToPinRef = useRef<any>(null)
+  const lineShotPinRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const linePlayerToPinRef = useRef<any>(null)
-  const watchIdRef = useRef<number | null>(null)
-  const firstGpsFix = useRef(false)
-  const onPinSetRef = useRef(onPinSet)
+  const lineDirectRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const AMERef = useRef<any>(null)
 
-  // UI state only
+  // Position refs — read inside stable map closures without causing rerenders
+  const playerPosRef = useRef<LatLng | null>(null)
+  const pinPosRef = useRef<LatLng | null>(null)
+  const shotPosRef = useRef<LatLng | null>(null)
+  const firstGpsFix = useRef(false)
+  const onPinSetRef = useRef(onPinSet)
+  const modeRef = useRef<PlaceMode>('pin')
+  const watchIdRef = useRef<number | null>(null)
+
+  // Display state (UI only)
   const [mapReady, setMapReady] = useState(false)
   const [mode, setMode] = useState<PlaceMode>('pin')
   const [playerPos, setPlayerPos] = useState<LatLng | null>(null)
@@ -84,6 +102,9 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
   const [windLabel, setWindLabel] = useState<string | null>(null)
 
   useEffect(() => { onPinSetRef.current = onPinSet }, [onPinSet])
+
+  // Sync mode to ref so map click closure can read it
+  const setModeAndRef = (m: PlaceMode) => { modeRef.current = m; setMode(m) }
 
   // Fetch wind once
   useEffect(() => {
@@ -100,7 +121,7 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ONE-TIME map init — all dynamics go through refs
+  // ONE-TIME map initialisation
   useEffect(() => {
     if (!mapDivRef.current || !GOOGLE_MAPS_KEY) return
     let cancelled = false
@@ -116,7 +137,7 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
       if (cancelled || !mapDivRef.current) return
       AMERef.current = AdvancedMarkerElement
 
-      const center = { lat: courseLat ?? 37.09024, lng: courseLng ?? -95.71289 }
+      const center: LatLng = { lat: courseLat ?? 37.09024, lng: courseLng ?? -95.71289 }
       const map = new Map(mapDivRef.current, {
         center, zoom: courseLat ? 17 : 4,
         mapTypeId: 'satellite', tilt: 0,
@@ -125,39 +146,22 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
       })
       mapRef.current = map
 
-      // Player marker
+      // Player marker (centered via 0-height wrapper)
       playerMarkerRef.current = new AdvancedMarkerElement({ map, position: center, content: makePlayerEl() })
 
-      // Polyline: player → shot target (white solid)
-      linePlayerToShotRef.current = new Polyline({
-        map, path: [], strokeColor: '#FFFFFF', strokeOpacity: 0.9, strokeWeight: 2,
-      })
+      // Polylines
+      linePlayerShotRef.current = new Polyline({ map, path: [], strokeColor: '#FFFFFF', strokeOpacity: 0.9, strokeWeight: 2 })
+      lineShotPinRef.current    = new Polyline({ map, path: [], strokeColor: '#C9A96E', strokeOpacity: 0.85, strokeWeight: 2, strokeDasharray: '8 5' })
+      lineDirectRef.current     = new Polyline({ map, path: [], strokeColor: '#FFFFFF', strokeOpacity: 0.5, strokeWeight: 1.5 })
 
-      // Polyline: shot target → pin (sand dashed)
-      lineShotToPinRef.current = new Polyline({
-        map, path: [], strokeColor: '#C9A96E', strokeOpacity: 0.8, strokeWeight: 2,
-        strokeDasharray: '6,4',
-      })
-
-      // Polyline: player → pin direct (white faint, shown when no shot target)
-      linePlayerToPinRef.current = new Polyline({
-        map, path: [], strokeColor: '#FFFFFF', strokeOpacity: 0.55, strokeWeight: 1.5,
-      })
-
-      // Tap handler — reads mode from a ref so the closure stays stable
-      const getModeRef = () => (document.getElementById('__courseMapModeRef__') as HTMLInputElement)?.value as PlaceMode ?? 'pin'
-
+      // Map tap — reads mode from ref (stable closure)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map.addListener('click', (e: any) => {
         const pos: LatLng = { lat: e.latLng.lat(), lng: e.latLng.lng() }
-        const currentMode = getModeRef()
-        if (currentMode === 'pin') {
+        if (modeRef.current === 'pin') {
           placePinAt(pos)
           onPinSetRef.current?.(pos.lat, pos.lng)
-          // Auto-advance to shot mode after placing pin
-          const modeInput = document.getElementById('__courseMapModeRef__') as HTMLInputElement
-          if (modeInput) modeInput.value = 'shot'
-          setMode('shot')
+          setModeAndRef('shot')
         } else {
           placeShotAt(pos)
         }
@@ -165,16 +169,17 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
 
       setMapReady(true)
 
-      // GPS
+      // GPS watch
       if (!navigator.geolocation) { setGpsError('Geolocation not supported'); return }
       watchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
           if (cancelled) return
           const p: LatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+          playerPosRef.current = p
           setPlayerPos(p)
           if (playerMarkerRef.current) playerMarkerRef.current.position = p
           if (!firstGpsFix.current && mapRef.current) { mapRef.current.panTo(p); firstGpsFix.current = true }
-          refreshLines()
+          updateLines()
         },
         (err) => setGpsError(err.message),
         { enableHighAccuracy: true, maximumAge: 3000 }
@@ -193,50 +198,68 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
     if (pinMarkerRef.current) pinMarkerRef.current.map = null
     if (!AMERef.current || !mapRef.current) return
     pinMarkerRef.current = new AMERef.current({ map: mapRef.current, position: pos, content: makeFlagEl() })
+    pinPosRef.current = pos
     setPinPos(pos)
-    refreshLines(undefined, pos, undefined)
+    updateLines()
   }
 
   function placeShotAt(pos: LatLng) {
-    if (shotMarkerRef.current) shotMarkerRef.current.map = null
+    if (shotMarkerRef.current) {
+      shotMarkerRef.current.map = null
+    }
     if (!AMERef.current || !mapRef.current) return
-    shotMarkerRef.current = new AMERef.current({ map: mapRef.current, position: pos, content: makeShotTargetEl() })
+
+    const marker = new AMERef.current({
+      map: mapRef.current,
+      position: pos,
+      content: makeShotTargetEl(),
+      gmpDraggable: true,
+    })
+
+    // Update on drag
+    marker.addListener('gmpDragend', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const p = (marker as any).position as { lat: () => number; lng: () => number }
+      const newPos: LatLng = { lat: p.lat(), lng: p.lng() }
+      shotPosRef.current = newPos
+      setShotPos(newPos)
+      updateLines()
+    })
+
+    shotMarkerRef.current = marker
+    shotPosRef.current = pos
     setShotPos(pos)
-    refreshLines(undefined, undefined, pos)
+    updateLines()
   }
 
-  function refreshLines(
-    pPlayer?: LatLng | null,
-    pPin?: LatLng | null,
-    pShot?: LatLng | null,
-  ) {
-    // Read current positions from refs when not passed in
-    const player = pPlayer !== undefined ? pPlayer : playerMarkerRef.current?.position ?? null
-    const pin = pPin !== undefined ? pPin : pinMarkerRef.current?.position ?? null
-    const shot = pShot !== undefined ? pShot : shotMarkerRef.current?.position ?? null
+  function updateLines() {
+    const player = playerPosRef.current
+    const pin = pinPosRef.current
+    const shot = shotPosRef.current
 
-    if (shot && player) {
-      linePlayerToShotRef.current?.setPath([player, shot])
-      linePlayerToPinRef.current?.setPath([])
+    if (player && shot) {
+      linePlayerShotRef.current?.setPath([player, shot])
+      lineDirectRef.current?.setPath([])
     } else if (player && pin) {
-      linePlayerToPinRef.current?.setPath([player, pin])
-      linePlayerToShotRef.current?.setPath([])
+      lineDirectRef.current?.setPath([player, pin])
+      linePlayerShotRef.current?.setPath([])
     } else {
-      linePlayerToShotRef.current?.setPath([])
-      linePlayerToPinRef.current?.setPath([])
+      linePlayerShotRef.current?.setPath([])
+      lineDirectRef.current?.setPath([])
     }
 
     if (shot && pin) {
-      lineShotToPinRef.current?.setPath([shot, pin])
+      lineShotPinRef.current?.setPath([shot, pin])
     } else {
-      lineShotToPinRef.current?.setPath([])
+      lineShotPinRef.current?.setPath([])
     }
   }
 
-  // Derived distances for display
-  const distPlayerToShot = playerPos && shotPos ? distanceBetween(playerPos.lat, playerPos.lng, shotPos.lat, shotPos.lng) : null
-  const distShotToPin = shotPos && pinPos ? distanceBetween(shotPos.lat, shotPos.lng, pinPos.lat, pinPos.lng) : null
-  const distPlayerToPin = playerPos && pinPos ? distanceBetween(playerPos.lat, playerPos.lng, pinPos.lat, pinPos.lng) : null
+  // Derived distances
+  const distToShot   = playerPos && shotPos ? distanceBetween(playerPos.lat, playerPos.lng, shotPos.lat, shotPos.lng) : null
+  const distShotPin  = shotPos  && pinPos   ? distanceBetween(shotPos.lat,  shotPos.lng,  pinPos.lat,  pinPos.lng)  : null
+  const distToPin    = playerPos && pinPos   ? distanceBetween(playerPos.lat, playerPos.lng, pinPos.lat, pinPos.lng) : null
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col max-w-[430px] mx-auto" style={{ background: '#0E160E' }}>
@@ -245,26 +268,21 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px',
         paddingTop: 'max(12px, env(safe-area-inset-top))', paddingBottom: 12,
-        background: 'rgba(14,22,14,0.96)',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        background: 'rgba(14,22,14,0.96)', borderBottom: '1px solid rgba(255,255,255,0.08)',
       }}>
-        <button
-          onClick={onClose}
-          style={{
-            width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-            background: 'rgba(36,56,36,0.8)', border: '1px solid rgba(255,255,255,0.10)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-          }}
-        >
+        <button onClick={onClose} style={{
+          width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+          background: 'rgba(36,56,36,0.8)', border: '1px solid rgba(255,255,255,0.10)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+        }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EDE9DF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
         </button>
 
         <div style={{
-          width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-          background: '#243824', border: '2px solid rgba(201,169,110,0.4)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 44, height: 44, borderRadius: '50%', flexShrink: 0, background: '#243824',
+          border: '2px solid rgba(201,169,110,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <span style={{ fontFamily: "'Playfair Display', serif", color: '#C9A96E', fontSize: 20, fontWeight: 700 }}>
             {hole.holeNumber}
@@ -272,11 +290,11 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
         </div>
 
         <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between' }}>
-          {[
-            { label: 'To Hole', value: distPlayerToPin != null ? `${Math.round(distPlayerToPin)}y` : `${hole.yardage ?? '—'}y` },
-            { label: 'Par',     value: String(hole.par) },
-            { label: teeColor,  value: `${hole.yardage ?? '—'}y` },
-          ].map(({ label, value }) => (
+          {([
+            { label: 'To Hole', value: distToPin != null ? `${Math.round(distToPin)}y` : `${hole.yardage ?? '—'}y` },
+            { label: 'Par', value: String(hole.par) },
+            { label: teeColor, value: `${hole.yardage ?? '—'}y` },
+          ]).map(({ label, value }) => (
             <div key={label} style={{ textAlign: 'center' }}>
               <p style={{ fontFamily: 'Archivo Narrow, sans-serif', color: 'rgba(138,158,138,0.7)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>{label}</p>
               <p style={{ fontFamily: "'Playfair Display', serif", color: '#EDE9DF', fontSize: 18, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>{value}</p>
@@ -289,32 +307,27 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <div ref={mapDivRef} style={{ width: '100%', height: '100%' }} />
 
-        {/* Hidden input to pass mode into the stable map click closure */}
-        <input id="__courseMapModeRef__" type="hidden" value={mode} />
-
         {!mapReady && (
           <div style={{ position: 'absolute', inset: 0, background: '#0E160E', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div className="w-6 h-6 border-2 border-sand border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
-        {/* Hint */}
         {mapReady && !pinPos && (
           <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)' }}>
-            <div style={{ padding: '8px 16px', borderRadius: 20, background: 'rgba(14,22,14,0.88)', border: '1px solid rgba(201,169,110,0.35)', color: '#C9A96E', fontFamily: 'Archivo Narrow, sans-serif', fontSize: 12, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
-              Tap the green to place the pin
+            <div style={{ padding: '8px 16px', borderRadius: 20, background: 'rgba(14,22,14,0.9)', border: '1px solid rgba(201,169,110,0.4)', color: '#C9A96E', fontFamily: 'Archivo Narrow, sans-serif', fontSize: 12, letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
+              Tap the green to place the pin 🚩
             </div>
           </div>
         )}
 
-        {/* GPS error */}
         {gpsError && (
           <div style={{ position: 'absolute', top: 12, left: 12, right: 12, background: 'rgba(248,113,113,0.15)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 12, padding: '8px 12px' }}>
             <p style={{ fontFamily: 'Archivo Narrow, sans-serif', color: '#F87171', fontSize: 12, margin: 0 }}>GPS: {gpsError}</p>
           </div>
         )}
 
-        {/* Wind overlay — top right */}
+        {/* Wind — top right */}
         {windLabel && (
           <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(14,22,14,0.88)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 12, padding: '8px 12px', textAlign: 'center' }}>
             <p style={{ fontFamily: 'Archivo Narrow, sans-serif', color: 'rgba(138,158,138,0.7)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px' }}>Wind</p>
@@ -322,53 +335,48 @@ export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPin
           </div>
         )}
 
-        {/* Distance bubbles — left side, stacked */}
+        {/* Distance bubbles — left side */}
         <div style={{ position: 'absolute', bottom: 12, left: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {distPlayerToShot != null && (
+          {distToShot != null && (
             <div style={{ background: 'rgba(14,22,14,0.9)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 12, padding: '8px 14px' }}>
               <p style={{ fontFamily: 'Archivo Narrow, sans-serif', color: 'rgba(138,158,138,0.7)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px' }}>Shot</p>
               <p style={{ fontFamily: "'Playfair Display', serif", color: '#EDE9DF', fontSize: 22, fontWeight: 700, margin: 0, lineHeight: 1 }}>
-                {Math.round(distPlayerToShot)}<span style={{ fontSize: 12, color: 'rgba(138,158,138,0.7)', marginLeft: 2 }}>y</span>
+                {Math.round(distToShot)}<span style={{ fontSize: 12, color: 'rgba(138,158,138,0.7)', marginLeft: 2 }}>y</span>
               </p>
             </div>
           )}
-          {distShotToPin != null && (
-            <div style={{ background: 'rgba(14,22,14,0.9)', border: '1px solid rgba(201,169,110,0.25)', borderRadius: 12, padding: '8px 14px' }}>
-              <p style={{ fontFamily: 'Archivo Narrow, sans-serif', color: 'rgba(138,158,138,0.7)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px' }}>To pin</p>
-              <p style={{ fontFamily: "'Playfair Display', serif", color: '#C9A96E', fontSize: 22, fontWeight: 700, margin: 0, lineHeight: 1 }}>
-                {Math.round(distShotToPin)}<span style={{ fontSize: 12, color: 'rgba(138,158,138,0.7)', marginLeft: 2 }}>y</span>
-              </p>
-            </div>
-          )}
-          {distPlayerToPin != null && !distPlayerToShot && (
+          {distShotPin != null && (
             <div style={{ background: 'rgba(14,22,14,0.9)', border: '1px solid rgba(201,169,110,0.3)', borderRadius: 12, padding: '8px 14px' }}>
               <p style={{ fontFamily: 'Archivo Narrow, sans-serif', color: 'rgba(138,158,138,0.7)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px' }}>To pin</p>
               <p style={{ fontFamily: "'Playfair Display', serif", color: '#C9A96E', fontSize: 22, fontWeight: 700, margin: 0, lineHeight: 1 }}>
-                {Math.round(distPlayerToPin)}<span style={{ fontSize: 12, color: 'rgba(138,158,138,0.7)', marginLeft: 2 }}>y</span>
+                {Math.round(distShotPin)}<span style={{ fontSize: 12, color: 'rgba(138,158,138,0.7)', marginLeft: 2 }}>y</span>
+              </p>
+            </div>
+          )}
+          {distToPin != null && distToShot == null && (
+            <div style={{ background: 'rgba(14,22,14,0.9)', border: '1px solid rgba(201,169,110,0.3)', borderRadius: 12, padding: '8px 14px' }}>
+              <p style={{ fontFamily: 'Archivo Narrow, sans-serif', color: 'rgba(138,158,138,0.7)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 2px' }}>To pin</p>
+              <p style={{ fontFamily: "'Playfair Display', serif", color: '#C9A96E', fontSize: 22, fontWeight: 700, margin: 0, lineHeight: 1 }}>
+                {Math.round(distToPin)}<span style={{ fontSize: 12, color: 'rgba(138,158,138,0.7)', marginLeft: 2 }}>y</span>
               </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Mode toggle bar */}
+      {/* Mode toggle */}
       <div style={{
         display: 'flex', gap: 8, padding: '12px 16px',
         paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
-        background: 'rgba(14,22,14,0.97)',
-        borderTop: '1px solid rgba(255,255,255,0.08)',
+        background: 'rgba(14,22,14,0.97)', borderTop: '1px solid rgba(255,255,255,0.08)',
       }}>
         {([
-          { id: 'pin',  label: '🚩 Set Pin',    hint: pinPos  ? '✓ Pin placed'   : 'Tap the green' },
-          { id: 'shot', label: '◎ Set Shot',    hint: shotPos ? '✓ Shot planned' : 'Tap fairway' },
-        ] as { id: PlaceMode; label: string; hint: string }[]).map(({ id, label, hint }) => (
+          { id: 'pin'  as PlaceMode, label: '🚩 Set Pin',    hint: pinPos  ? '✓ Placed — tap to move'   : 'Tap the green' },
+          { id: 'shot' as PlaceMode, label: '◎ Set Shot',    hint: shotPos ? '✓ Placed — drag to adjust' : 'Tap fairway aim point' },
+        ]).map(({ id, label, hint }) => (
           <button
             key={id}
-            onClick={() => {
-              setMode(id)
-              const inp = document.getElementById('__courseMapModeRef__') as HTMLInputElement
-              if (inp) inp.value = id
-            }}
+            onClick={() => setModeAndRef(id)}
             style={{
               flex: 1, borderRadius: 10, padding: '10px 0', cursor: 'pointer',
               border: mode === id ? '1px solid rgba(201,169,110,0.5)' : '1px solid rgba(255,255,255,0.08)',
