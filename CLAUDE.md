@@ -64,7 +64,9 @@ This project uses **graphify** to build a persistent knowledge graph of the code
 - When discovering non-obvious relationships between components (e.g. "CourseMap must be re-mounted with a stable onPinSet ref")
 - When the user types `/graphify` (invoke the Skill tool with `skill: "graphify"`)
 
-**How:** Type `/graphify` in the prompt to invoke the skill. It accepts any input — code snippets, architectural descriptions, lessons learned — and adds nodes/edges to the knowledge graph for future sessions to use as context.
+**How:** Type `/graphify` in the prompt to invoke the skill. It runs on the actual source files in `--update` mode (incremental — only re-processes changed files) and rebuilds `graphify-out/graph.html` and `graphify-out/GRAPH_REPORT.md`. The persistent graph lives in `graphify-out/graph.json` and grows across sessions.
+
+**Both tools together:** After every significant session, run `ml learn` to find what to record in mulch, then `/graphify` to update the knowledge graph. Mulch holds typed, queryable expertise records (conventions, failures, decisions). Graphify holds the structural relationship map of the codebase. They're complementary — use both.
 
 <!-- mulch:start -->
 ## Project Expertise (Mulch)
