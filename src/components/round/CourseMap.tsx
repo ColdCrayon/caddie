@@ -33,9 +33,10 @@ function makeFlagEl(): HTMLDivElement {
 }
 
 function makeShotTargetEl(): HTMLDivElement {
-  // height:22px + overflow:visible → bottom-center anchor at (22,22) = visual centre of the 44px SVG
+  // height:0 + overflow:visible → AdvancedMarkerElement anchors at bottom-center = y:0 in outer space.
+  // Inner translateY(-50%) centers it vertically around that anchor point (same pattern as makePlayerEl).
   const outer = document.createElement('div')
-  outer.style.cssText = 'width:44px;height:22px;overflow:visible;position:relative;cursor:grab;'
+  outer.style.cssText = 'width:44px;height:0;overflow:visible;position:relative;cursor:grab;'
   const inner = document.createElement('div')
   inner.style.cssText = 'position:absolute;top:0;left:0;width:44px;height:44px;transform:translateY(-50%);'
   inner.innerHTML = `<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
