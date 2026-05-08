@@ -1,26 +1,9 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { setOptions } from '@googlemaps/js-api-loader'
-import type { ActiveHoleState, TeeColor, Lie, Club } from '../../types'
-import { CLUB_LABELS, CLUBS } from '../../types'
-import { streamAIRequest } from '../../lib/claude'
+import type { ActiveHoleState, TeeColor } from '../../types'
+import { distanceBetween } from '../../lib/gps'
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined
-const LIES: Lie[] = ['fairway', 'rough', 'sand', 'trees', 'fringe', 'green']
-const LIE_LABELS: Record<Lie, string> = {
-  fairway: 'Fairway', rough: 'Rough', sand: 'Sand',
-  trees: 'Trees', fringe: 'Fringe', green: 'Green',
-}
-
-function haversineYards(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000
-  const φ1 = (lat1 * Math.PI) / 180
-  const φ2 = (lat2 * Math.PI) / 180
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180
-  const Δλ = ((lng2 - lng1) * Math.PI) / 180
-  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
-  const meters = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return meters * 1.09361
-}
 
 interface Props {
   hole: ActiveHoleState
@@ -31,320 +14,297 @@ interface Props {
   onPinSet?: (lat: number, lng: number) => void
 }
 
-export function CourseMap({ hole, teeColor: _teeColor, courseLat, courseLng, onClose, onPinSet }: Props) {
-  const mapRef = useRef<HTMLDivElement>(null)
+export function CourseMap({ hole, teeColor, courseLat, courseLng, onClose, onPinSet }: Props) {
+  const mapDivRef = useRef<HTMLDivElement>(null)
+
+  // Stable map handles — stored in refs so state changes don't reinit the map
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mapInstanceRef = useRef<any>(null)
+  const mapRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userMarkerRef = useRef<any>(null)
+  const playerMarkerRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const targetMarkerRef = useRef<any>(null)
+  const pinMarkerRef = useRef<any>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const polylineRef = useRef<any>(null)
   const watchIdRef = useRef<number | null>(null)
-
-  const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null)
-  const [target, setTarget] = useState<{ lat: number; lng: number } | null>(null)
-  const [distance, setDistance] = useState<number | null>(null)
+  const firstGpsFix = useRef(false)
+  const onPinSetRef = useRef(onPinSet)
   const [mapReady, setMapReady] = useState(false)
+
+  // Display state (UI only — never used as effect deps that touch the map)
+  const [playerPos, setPlayerPos] = useState<{ lat: number; lng: number } | null>(null)
+  const [pinPos, setPinPos] = useState<{ lat: number; lng: number } | null>(null)
+  const [distYards, setDistYards] = useState<number | null>(null)
   const [gpsError, setGpsError] = useState<string | null>(null)
+  const [windSpeed, setWindSpeed] = useState<number | null>(null)
+  const [windLabel, setWindLabel] = useState<string>('')
 
-  const [selectedLie, setSelectedLie] = useState<Lie>('fairway')
-  const [selectedClub, setSelectedClub] = useState<Club | ''>('')
-  const [showClubPicker, setShowClubPicker] = useState(false)
+  // Keep onPinSetRef current without triggering any effect
+  useEffect(() => { onPinSetRef.current = onPinSet }, [onPinSet])
 
-  const [advice, setAdvice] = useState('')
-  const [adviceLoading, setAdviceLoading] = useState(false)
-  const [windSpeed, setWindSpeed] = useState(0)
-  const [windDir, setWindDir] = useState(0)
-
-  // Fetch live wind at course location
+  // Fetch wind once on mount
   useEffect(() => {
-    const lat = courseLat ?? userPos?.lat
-    const lng = courseLng ?? userPos?.lng
+    const lat = courseLat ?? null
+    const lng = courseLng ?? null
     if (!lat || !lng) return
-    fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=wind_speed_10m,wind_direction_10m&wind_speed_unit=mph`
-    )
-      .then((r) => r.json())
-      .then((d) => {
-        setWindSpeed(d.current?.wind_speed_10m ?? 0)
-        setWindDir(d.current?.wind_direction_10m ?? 0)
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=wind_speed_10m,wind_direction_10m&wind_speed_unit=mph`)
+      .then(r => r.json())
+      .then(d => {
+        const spd = Math.round(d.current?.wind_speed_10m ?? 0)
+        const deg = d.current?.wind_direction_10m ?? 0
+        const dirs = ['N','NE','E','SE','S','SW','W','NW']
+        setWindSpeed(spd)
+        setWindLabel(`${spd} mph ${dirs[Math.round(deg / 45) % 8]}`)
       })
       .catch(() => {})
-  }, [courseLat, courseLng, userPos])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // Recalculate distance when either position changes
+  // ONE-TIME map initialisation
   useEffect(() => {
-    if (userPos && target) {
-      setDistance(haversineYards(userPos.lat, userPos.lng, target.lat, target.lng))
-    } else {
-      setDistance(null)
-    }
-  }, [userPos, target])
+    if (!mapDivRef.current || !GOOGLE_MAPS_KEY) return
+    let cancelled = false
 
-  // Update user marker when position changes
-  useEffect(() => {
-    if (!mapInstanceRef.current || !userPos) return
-    if (userMarkerRef.current) {
-      userMarkerRef.current.position = userPos
-    }
-  }, [userPos])
+    async function init() {
+      setOptions({ key: GOOGLE_MAPS_KEY!, v: 'weekly' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { importLibrary } = await import('@googlemaps/js-api-loader') as any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { Map, Polyline } = await importLibrary('maps') as any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { AdvancedMarkerElement } = await importLibrary('marker') as any
+      if (cancelled || !mapDivRef.current) return
 
-  // Update target marker when target changes
-  useEffect(() => {
-    if (!mapInstanceRef.current || !target) return
-    if (targetMarkerRef.current) {
-      targetMarkerRef.current.position = target
-    }
-  }, [target])
+      const center = { lat: courseLat ?? 37.09024, lng: courseLng ?? -95.71289 }
 
-  const initMap = useCallback(async () => {
-    if (!mapRef.current || !GOOGLE_MAPS_KEY) return
+      const map = new Map(mapDivRef.current, {
+        center,
+        zoom: courseLat ? 17 : 4,
+        mapTypeId: 'satellite',
+        tilt: 0,
+        disableDefaultUI: true,
+        gestureHandling: 'greedy',
+        mapId: 'DEMO_MAP_ID',
+      })
+      mapRef.current = map
 
-    setOptions({ key: GOOGLE_MAPS_KEY, v: 'weekly' })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { importLibrary } = await import('@googlemaps/js-api-loader') as any
+      // Player marker — pulsing blue dot
+      const playerDot = document.createElement('div')
+      playerDot.style.cssText = `
+        width:16px;height:16px;border-radius:50%;
+        background:#4A90E2;border:3px solid white;
+        box-shadow:0 0 0 6px rgba(74,144,226,0.25);
+      `
+      playerMarkerRef.current = new AdvancedMarkerElement({
+        map, position: center, content: playerDot,
+      })
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { Map } = await importLibrary('maps') as any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { AdvancedMarkerElement } = await importLibrary('marker') as any
+      // Polyline (initially invisible)
+      const line = new Polyline({
+        path: [],
+        strokeColor: '#FFFFFF',
+        strokeOpacity: 0.85,
+        strokeWeight: 2,
+        map,
+        icons: [{
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          icon: { path: (await importLibrary('maps') as any).SymbolPath?.FORWARD_CLOSED_ARROW ?? 0, scale: 3, strokeColor: '#C9A96E' },
+          offset: '50%',
+        }],
+      })
+      polylineRef.current = line
 
-    const center = { lat: courseLat ?? 37.09024, lng: courseLng ?? -95.71289 }
+      // Tap map → place pin
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      map.addListener('click', (e: any) => {
+        const pos = { lat: e.latLng.lat(), lng: e.latLng.lng() }
+        placePinAt(pos, { Map, AdvancedMarkerElement })
+        onPinSetRef.current?.(pos.lat, pos.lng)
+      })
 
-    const map = new Map(mapRef.current, {
-      center,
-      zoom: courseLat ? 17 : 4,
-      mapTypeId: 'satellite',
-      tilt: 0,
-      disableDefaultUI: true,
-      gestureHandling: 'greedy',
-      mapId: 'DEMO_MAP_ID',
-    })
-    mapInstanceRef.current = map
+      setMapReady(true)
 
-    // User position marker (blue pulsing dot)
-    const userDot = document.createElement('div')
-    userDot.style.cssText = `
-      width:16px;height:16px;border-radius:50%;background:#4285F4;
-      border:3px solid white;box-shadow:0 0 0 4px rgba(66,133,244,0.3);
-    `
-    const userMarker = new AdvancedMarkerElement({ map, position: center, content: userDot })
-    userMarkerRef.current = userMarker
-
-    // Tap → place target flag
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    map.addListener('click', (e: any) => {
-      const pos = { lat: e.latLng.lat(), lng: e.latLng.lng() }
-      setTarget(pos)
-      onPinSet?.(pos.lat, pos.lng)
-
-      if (targetMarkerRef.current) {
-        targetMarkerRef.current.map = null
+      // GPS watch — stable, lives for the lifetime of this component
+      if (!navigator.geolocation) {
+        setGpsError('Geolocation not supported')
+        return
       }
-      const flagEl = document.createElement('div')
-      flagEl.style.cssText = 'font-size:28px;line-height:1;cursor:pointer;'
-      flagEl.textContent = '🚩'
-      const flagMarker = new AdvancedMarkerElement({ map, position: pos, content: flagEl })
-      targetMarkerRef.current = flagMarker
-    })
-
-    setMapReady(true)
-
-    // Start GPS tracking
-    if (!navigator.geolocation) {
-      setGpsError('Geolocation not available on this device')
-      return
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          if (cancelled) return
+          const p = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+          setPlayerPos(p)
+          // Update player marker
+          if (playerMarkerRef.current) playerMarkerRef.current.position = p
+          // Pan on first fix only
+          if (!firstGpsFix.current && mapRef.current) {
+            mapRef.current.panTo(p)
+            firstGpsFix.current = true
+          }
+          // Update polyline
+          updatePolyline(p, pinMarkerRef.current?.position)
+          // Update distance
+          if (pinMarkerRef.current?.position) {
+            const pin = pinMarkerRef.current.position
+            setDistYards(distanceBetween(p.lat, p.lng, pin.lat, pin.lng))
+          }
+        },
+        (err) => setGpsError(err.message),
+        { enableHighAccuracy: true, maximumAge: 3000 }
+      )
     }
 
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-        setUserPos(p)
-        if (userMarkerRef.current) userMarkerRef.current.position = p
-        // Pan to user on first fix
-        setUserPos((prev) => {
-          if (!prev) map.panTo(p)
-          return p
-        })
-      },
-      (err) => setGpsError(err.message),
-      { enableHighAccuracy: true, maximumAge: 3000 }
-    )
-  }, [courseLat, courseLng, onPinSet])
-
-  useEffect(() => {
-    initMap()
+    init().catch(console.error)
     return () => {
+      cancelled = true
       if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current)
     }
-  }, [initMap])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // empty — init ONCE, use refs for everything dynamic
 
-  const getAdvice = async () => {
-    if (!distance) return
-    setAdvice('')
-    setAdviceLoading(true)
-    const dirLabels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
-    const windLabel = dirLabels[Math.round(windDir / 45) % 8]
-    try {
-      await streamAIRequest(
-        'shot_advice',
-        {
-          distance_to_pin: Math.round(distance),
-          lie: selectedLie,
-          wind_speed: Math.round(windSpeed),
-          wind_direction: windDir,
-          elevation_change: 0,
-          hole_par: hole.par,
-          hole_number: hole.holeNumber,
-          selected_club: selectedClub || `none — wind ${Math.round(windSpeed)} mph from ${windLabel}, recommend a club`,
-        },
-        (chunk) => setAdvice((prev) => prev + chunk)
-      )
-    } catch {
-      setAdvice('Could not reach Angus right now. Check your connection.')
+  function placePinAt(
+    pos: { lat: number; lng: number },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    libs?: { Map?: any; AdvancedMarkerElement?: any }
+  ) {
+    // Remove old pin marker
+    if (pinMarkerRef.current) pinMarkerRef.current.map = null
+
+    const AME = libs?.AdvancedMarkerElement
+    if (!AME || !mapRef.current) return
+
+    const flagEl = document.createElement('div')
+    flagEl.style.cssText = `
+      width:28px;height:28px;display:flex;align-items:center;justify-content:center;
+      font-size:22px;line-height:1;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.6));
+    `
+    flagEl.textContent = '🚩'
+    pinMarkerRef.current = new AME({ map: mapRef.current, position: pos, content: flagEl })
+    setPinPos(pos)
+
+    if (playerPos) {
+      updatePolyline(playerPos, pos)
+      setDistYards(distanceBetween(playerPos.lat, playerPos.lng, pos.lat, pos.lng))
     }
-    setAdviceLoading(false)
   }
 
-  const windDirLabel = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(windDir / 45) % 8]
+  function updatePolyline(
+    from: { lat: number; lng: number },
+    to: { lat: number; lng: number } | null | undefined
+  ) {
+    if (!polylineRef.current) return
+    if (to) {
+      polylineRef.current.setPath([from, to])
+    } else {
+      polylineRef.current.setPath([])
+    }
+  }
+
+  const teeYardage = hole.yardage ?? '—'
 
   return (
-    <div className="fixed inset-0 z-50 bg-ink flex flex-col max-w-[430px] mx-auto">
-      {/* Header */}
+    <div className="fixed inset-0 z-50 flex flex-col max-w-[430px] mx-auto" style={{ background: '#0E160E' }}>
+
+      {/* Top hole info bar */}
       <div
-        className="flex items-center justify-between px-4 py-3 bg-fairway/95 border-b border-white/10"
-        style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}
+        className="flex items-center gap-3 px-4 py-3"
+        style={{
+          paddingTop: 'max(12px, env(safe-area-inset-top))',
+          background: 'rgba(14,22,14,0.95)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+        }}
       >
-        <div>
-          <p className="font-ui text-chalk/50 text-xs">Satellite View</p>
-          <p className="font-display text-chalk font-semibold text-sm">
-            Hole {hole.holeNumber} · Par {hole.par} · {hole.yardage} yds
-          </p>
+        {/* Back button */}
+        <button
+          onClick={onClose}
+          className="flex items-center justify-center cursor-pointer active:scale-[0.92] transition-transform flex-shrink-0"
+          style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(36,56,36,0.8)', border: '1px solid rgba(255,255,255,0.10)' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EDE9DF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
+
+        {/* Hole number */}
+        <div
+          className="flex items-center justify-center flex-shrink-0"
+          style={{ width: 44, height: 44, borderRadius: '50%', background: '#243824', border: '2px solid rgba(201,169,110,0.4)' }}
+        >
+          <span className="font-display text-sand text-xl font-bold">{hole.holeNumber}</span>
         </div>
-        <div className="flex items-center gap-3">
-          {windSpeed > 0 && (
-            <span className="font-mono text-sand text-xs">
-              {Math.round(windSpeed)} mph {windDirLabel}
-            </span>
-          )}
-          <button onClick={onClose} className="text-chalk/50 text-2xl leading-none">✕</button>
+
+        {/* Stats row */}
+        <div className="flex-1 flex items-center justify-between">
+          <div className="text-center">
+            <p className="font-ui text-fog/60 text-xs uppercase tracking-widest">To Hole</p>
+            <p className="font-display text-chalk text-lg font-bold">
+              {distYards != null ? `${Math.round(distYards)}` : teeYardage}
+              <span className="font-ui text-fog/60 text-xs ml-0.5">y</span>
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="font-ui text-fog/60 text-xs uppercase tracking-widest">Par</p>
+            <p className="font-display text-chalk text-lg font-bold">{hole.par}</p>
+          </div>
+          <div className="text-center">
+            <p className="font-ui text-fog/60 text-xs uppercase tracking-widest">{teeColor}</p>
+            <p className="font-display text-chalk text-lg font-bold">
+              {teeYardage}
+              <span className="font-ui text-fog/60 text-xs ml-0.5">y</span>
+            </p>
+          </div>
         </div>
       </div>
 
       {/* Map */}
       <div className="relative flex-1 min-h-0">
-        <div ref={mapRef} className="w-full h-full" />
+        <div ref={mapDivRef} className="w-full h-full" />
 
+        {/* Loading overlay */}
         {!mapReady && (
-          <div className="absolute inset-0 bg-ink flex items-center justify-center">
+          <div className="absolute inset-0 flex items-center justify-center" style={{ background: '#0E160E' }}>
             <div className="w-6 h-6 border-2 border-sand border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
-        {/* Distance badge */}
-        {distance !== null && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-ink/90 backdrop-blur rounded-full px-4 py-1.5 border border-sand/30">
-            <span className="font-mono text-sand font-bold text-lg">{Math.round(distance)}</span>
-            <span className="font-ui text-chalk/60 text-sm ml-1">yds to flag</span>
+        {/* Hint: tap to place pin */}
+        {mapReady && !pinPos && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+            <div
+              className="px-4 py-2 rounded-full font-ui text-xs"
+              style={{ background: 'rgba(14,22,14,0.85)', border: '1px solid rgba(201,169,110,0.3)', color: '#C9A96E' }}
+            >
+              Tap the green to set the pin
+            </div>
           </div>
         )}
 
-        {!target && mapReady && (
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-ink/80 backdrop-blur rounded-full px-4 py-2">
-            <p className="font-ui text-chalk/70 text-xs">Tap map to place flag 🚩</p>
-          </div>
-        )}
-
+        {/* GPS error */}
         {gpsError && (
-          <div className="absolute top-3 left-3 right-3 bg-bogey/20 border border-bogey/40 rounded-xl px-3 py-2">
+          <div className="absolute top-3 left-3 right-3 rounded-xl px-3 py-2" style={{ background: 'rgba(248,113,113,0.15)', border: '1px solid rgba(248,113,113,0.3)' }}>
             <p className="font-ui text-bogey text-xs">GPS: {gpsError}</p>
           </div>
         )}
-      </div>
 
-      {/* Controls panel */}
-      <div
-        className="bg-ink border-t border-white/10 px-4 pt-3 pb-4 space-y-3"
-        style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
-      >
-        {/* Lie selector */}
-        <div>
-          <p className="font-ui text-chalk/40 text-xs uppercase tracking-widest mb-2">Lie</p>
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-            {LIES.map((lie) => (
-              <button
-                key={lie}
-                onClick={() => setSelectedLie(lie)}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-lg border font-ui text-xs font-medium transition-colors ${
-                  selectedLie === lie
-                    ? 'bg-sand/20 border-sand/50 text-sand'
-                    : 'bg-rough/30 border-white/10 text-chalk/50'
-                }`}
-              >
-                {LIE_LABELS[lie]}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Club selector (optional) */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <p className="font-ui text-chalk/40 text-xs uppercase tracking-widest">Club (optional)</p>
-            {selectedClub && (
-              <button onClick={() => setSelectedClub('')} className="font-ui text-chalk/30 text-xs">
-                Clear
-              </button>
-            )}
-          </div>
-          <button
-            onClick={() => setShowClubPicker((v) => !v)}
-            className="w-full text-left px-3 py-2 rounded-lg border border-white/10 bg-rough/30 font-ui text-sm"
+        {/* Wind overlay — bottom right */}
+        {windSpeed != null && (
+          <div
+            className="absolute bottom-4 right-4 rounded-xl px-3 py-2 text-center"
+            style={{ background: 'rgba(14,22,14,0.88)', border: '1px solid rgba(255,255,255,0.10)' }}
           >
-            <span className={selectedClub ? 'text-chalk' : 'text-chalk/30'}>
-              {selectedClub ? CLUB_LABELS[selectedClub as Club] : 'Let Angus decide…'}
-            </span>
-          </button>
-          {showClubPicker && (
-            <div className="mt-1 bg-rough border border-white/10 rounded-xl overflow-hidden max-h-36 overflow-y-auto">
-              {CLUBS.filter((c) => c !== 'putter').map((c) => (
-                <button
-                  key={c}
-                  onClick={() => { setSelectedClub(c); setShowClubPicker(false) }}
-                  className="w-full text-left px-4 py-2 font-ui text-sm text-chalk hover:bg-sand/10 border-b border-white/5 last:border-0"
-                >
-                  {CLUB_LABELS[c]}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+            <p className="font-ui text-fog/60 text-xs uppercase tracking-widest">Wind</p>
+            <p className="font-display text-chalk text-lg font-bold">{windLabel}</p>
+          </div>
+        )}
 
-        {/* Ask Angus */}
-        <button
-          onClick={getAdvice}
-          disabled={!distance || adviceLoading}
-          className={`w-full py-3 rounded-xl font-ui font-semibold text-sm transition-colors ${
-            distance && !adviceLoading
-              ? 'bg-sand text-ink'
-              : 'bg-rough border border-white/10 text-chalk/30'
-          }`}
-        >
-          {adviceLoading ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="w-4 h-4 border-2 border-ink border-t-transparent rounded-full animate-spin" />
-              Angus is thinking…
-            </span>
-          ) : distance
-            ? `Ask Angus — ${Math.round(distance)} yds`
-            : 'Place flag first'}
-        </button>
-
-        {/* Streaming advice */}
-        {advice && (
-          <div className="bg-fairway/60 rounded-xl p-3 border border-white/5">
-            <p className="font-ui text-chalk/50 text-xs mb-1">Angus</p>
-            <p className="font-ui text-chalk text-sm leading-relaxed">{advice}</p>
+        {/* Distance bubble — floating near player, bottom left */}
+        {distYards != null && (
+          <div
+            className="absolute bottom-4 left-4 rounded-xl px-4 py-2"
+            style={{ background: 'rgba(14,22,14,0.9)', border: '1px solid rgba(201,169,110,0.3)' }}
+          >
+            <p className="font-ui text-fog/60 text-xs uppercase tracking-widest">To pin</p>
+            <p className="font-display text-sand text-2xl font-bold">{Math.round(distYards)}<span className="font-ui text-fog/60 text-sm ml-1">y</span></p>
           </div>
         )}
       </div>

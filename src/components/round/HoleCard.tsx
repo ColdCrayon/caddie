@@ -94,18 +94,21 @@ export function HoleCard({ hole, index }: HoleCardProps) {
         </div>
       </div>
 
-      {/* Secondary: Putts — compact row */}
+      {/* Secondary: Putts — compact row, linked to total strokes */}
       <div
         className="px-5 py-3 flex items-center justify-between"
         style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
       >
         <div>
           <p className="font-ui text-fog text-xs uppercase tracking-widest">Putts</p>
-          <p className="font-ui text-fog/50 text-xs mt-0.5">Already counted in total</p>
+          <p className="font-ui text-fog/50 text-xs mt-0.5">Counted in total strokes</p>
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => updateHole(index, { putts: Math.max(0, hole.putts - 1) })}
+            onClick={() => updateHole(index, {
+              putts: Math.max(0, hole.putts - 1),
+              strokes: Math.max(0, hole.strokes - 1),
+            })}
             disabled={hole.putts <= 0}
             className="flex items-center justify-center transition-all active:scale-[0.92]
                        disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
@@ -122,7 +125,10 @@ export function HoleCard({ hole, index }: HoleCardProps) {
           </span>
 
           <button
-            onClick={() => updateHole(index, { putts: hole.putts + 1 })}
+            onClick={() => updateHole(index, {
+              putts: hole.putts + 1,
+              strokes: hole.strokes + 1,
+            })}
             className="flex items-center justify-center transition-all active:scale-[0.92] cursor-pointer"
             style={{
               width: 40, height: 40, borderRadius: '50%',
