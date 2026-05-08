@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { SafeArea } from '../components/layout/SafeArea'
 import { PageHeader } from '../components/layout/PageHeader'
@@ -8,12 +8,14 @@ import { CameraView } from '../components/swing/CameraView'
 import { SwingFeedback } from '../components/swing/SwingFeedback'
 import { useUserStore } from '../stores/userStore'
 import { useSwings, useSaveSwing, useUploadSwingVideo } from '../hooks/useSwings'
-import { extractFrames } from '../lib/canvas'
+import { analyzePoseFromVideo, initPoseLandmarker } from '../lib/poseAnalysis'
 import { fetchSwingAnalysis } from '../lib/claude'
 import type { Club, SwingAnalysis } from '../types'
+import type { PhaseData } from '../lib/poseAnalysis'
 import { CLUBS, CLUB_LABELS } from '../types'
 
 type Stage = 'list' | 'record' | 'analyzing' | 'feedback'
+type AnalyzeStep = 'pose' | 'ai'
 
 export default function Swing() {
   const user = useUserStore((s) => s.user)
@@ -24,17 +26,29 @@ export default function Swing() {
   const [stage, setStage] = useState<Stage>('list')
   const [club, setClub] = useState<Club>('7i')
   const [analysis, setAnalysis] = useState<SwingAnalysis | null>(null)
-  const [frames, setFrames] = useState<string[]>([])
+  const [phases, setPhases] = useState<PhaseData | null>(null)
+  const [lowConfidence, setLowConfidence] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [analyzeStep, setAnalyzeStep] = useState<AnalyzeStep>('pose')
 
-  const handleRecorded = async (blob: Blob) => {
+  // Warm up MediaPipe when recording screen is shown
+  useEffect(() => {
+    if (stage === 'record') {
+      initPoseLandmarker().catch(() => {})
+    }
+  }, [stage])
+
+  const handleRecorded = async (blob: Blob, view: 'face-on' | 'down-the-line') => {
     setStage('analyzing')
+    setAnalyzeStep('pose')
     setError(null)
     try {
-      const extracted = await extractFrames(blob, 5)
-      setFrames(extracted)
+      const { biometrics, phases: phaseData } = await analyzePoseFromVideo(blob)
+      setPhases(phaseData)
+      setLowConfidence(biometrics.lowConfidence)
 
-      const raw = await fetchSwingAnalysis(extracted, club)
+      setAnalyzeStep('ai')
+      const raw = await fetchSwingAnalysis(biometrics as unknown as Record<string, unknown>, CLUB_LABELS[club], view)
       const parsed: SwingAnalysis = JSON.parse(raw)
       setAnalysis(parsed)
 
@@ -55,7 +69,8 @@ export default function Swing() {
 
       setStage('feedback')
     } catch (e) {
-      setError('Analysis failed. Check your connection and try again.')
+      const msg = e instanceof Error ? e.message : 'Analysis failed. Check your connection and try again.'
+      setError(msg)
       setStage('record')
     }
   }
@@ -98,7 +113,7 @@ export default function Swing() {
                         </div>
                         {s.ai_analysis && (
                           <p className="font-ui text-chalk/50 text-xs mt-2 line-clamp-2">
-                            {s.ai_analysis.overall}
+                            {s.ai_analysis.summary || s.ai_analysis.overall}
                           </p>
                         )}
                       </Card>
@@ -151,17 +166,19 @@ export default function Swing() {
             <div className="w-12 h-12 border-2 border-sand border-t-transparent rounded-full animate-spin" />
             <p className="font-display text-chalk text-lg">Analyzing your swing…</p>
             <p className="font-ui text-chalk/40 text-sm text-center">
-              Extracting frames and consulting the PGA teaching pro
+              {analyzeStep === 'pose'
+                ? 'Detecting body position and biomechanics…'
+                : 'Consulting the PGA teaching pro…'}
             </p>
           </div>
         )}
 
-        {stage === 'feedback' && analysis && (
+        {stage === 'feedback' && analysis && phases && (
           <div className="space-y-4">
-            <SwingFeedback analysis={analysis} frames={frames} />
+            <SwingFeedback analysis={analysis} phases={phases} lowConfidence={lowConfidence} />
             <Button
               variant="secondary"
-              onClick={() => { setStage('list'); setAnalysis(null); setFrames([]) }}
+              onClick={() => { setStage('list'); setAnalysis(null); setPhases(null) }}
               className="w-full"
             >
               ← Swing Library

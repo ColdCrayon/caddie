@@ -56,4 +56,7 @@ export default defineConfig({
   resolve: {
     alias: { '@': '/src' },
   },
+  optimizeDeps: {
+    exclude: ['@mediapipe/tasks-vision'],
+  },
 })

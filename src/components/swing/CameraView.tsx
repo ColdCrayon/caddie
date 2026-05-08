@@ -4,7 +4,7 @@ import { Button } from '../ui/Button'
 type Mode = 'face-on' | 'down-the-line'
 
 interface CameraViewProps {
-  onRecorded: (blob: Blob) => void
+  onRecorded: (blob: Blob, view: Mode) => void
 }
 
 export function CameraView({ onRecorded }: CameraViewProps) {
@@ -85,7 +85,7 @@ export function CameraView({ onRecorded }: CameraViewProps) {
 
   const acceptRecording = () => {
     if (previewBlob) {
-      onRecorded(previewBlob)
+      onRecorded(previewBlob, mode)
       setPreview(null)
       setPreviewBlob(null)
     }

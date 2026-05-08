@@ -40,12 +40,16 @@ export async function streamAIAdvice(
   }
 }
 
-export async function fetchSwingAnalysis(frames: string[], club: string): Promise<string> {
+export async function fetchSwingAnalysis(
+  biometrics: Record<string, unknown>,
+  club: string,
+  view: string
+): Promise<string> {
   const headers = await getAuthHeader()
   const res = await fetch(EDGE_FN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
-    body: JSON.stringify({ type: 'swing_analysis', payload: { frames, club } }),
+    body: JSON.stringify({ type: 'swing_analysis', payload: { biometrics, club, view } }),
   })
   if (!res.ok) throw new Error('AI proxy error')
   return res.text()

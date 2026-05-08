@@ -71,22 +71,33 @@ Deno.serve(async (req) => {
     }
 
     if (type === 'swing_analysis') {
-      const { frames, club } = payload
-      const content: Anthropic.MessageParam['content'] = [
-        {
-          type: 'text',
-          text: `Analyze these 5 sequential frames of a golf swing with a ${club}. For each of the 5 positions (address, takeaway, top of backswing, impact, follow-through), note: 1) what is correct, 2) what could be improved. Then give an overall assessment with 3 prioritized improvement tips. Respond only in valid JSON: { "frames": [{"position": string, "correct": string, "improve": string}], "overall": string, "tips": [string] }`,
-        },
-        ...frames.map((f: string) => ({
-          type: 'image' as const,
-          source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data: f },
-        })),
-      ]
+      const { biometrics, club, view } = payload
+      const b = biometrics as Record<string, number>
+
+      const userPrompt = `Swing measurements:
+- Shoulder rotation at top of backswing: ${b.shoulderRotation}° (tour average: 90°)
+- Hip rotation at top of backswing: ${b.hipRotation}° (tour average: 45°)
+- X-factor (shoulder vs hip differential): ${b.xFactor}° (tour average: 45°)
+- Lead arm angle at top: ${b.leadArmAngle}° (ideal: 85-95°)
+- Spine tilt at address: ${b.spineTilt}° (ideal: 35-45° forward)
+- Head lateral drift, address to impact: ${b.headDrift}% of frame (ideal: under 5%)
+- Lead knee flex change, address to impact: ${b.kneeFlexChange}° (positive = straighter at impact; ideal: -5 to +10°)
+
+Camera view: ${view}
+Club: ${club}
+
+Respond only in valid JSON:
+{
+  "summary": "2 sentence overall assessment",
+  "metrics": [{"name": string, "value": string, "status": "good"|"watch"|"fix", "note": string}],
+  "tips": [{"priority": 1|2|3, "fault": string, "drill": string}]
+}`
 
       const msg = await client.messages.create({
         model: MODEL,
         max_tokens: 1024,
-        messages: [{ role: 'user', content }],
+        system: `You are a PGA-certified teaching professional analyzing a student's golf swing. You have been provided with precise biomechanical measurements extracted from video analysis software. Give specific, actionable coaching feedback based only on these measurements — do not speculate about anything not in the data. Always return exactly 7 metrics (one per measurement) and exactly 3 tips ordered by priority.`,
+        messages: [{ role: 'user', content: userPrompt }],
       })
 
       const text = msg.content[0].type === 'text' ? msg.content[0].text : '{}'

@@ -124,10 +124,37 @@ export interface SwingFrame {
   improve: string
 }
 
+export interface SwingMetric {
+  name: string
+  value: string
+  status: 'good' | 'watch' | 'fix'
+  note: string
+}
+
+export interface SwingTip {
+  priority: 1 | 2 | 3
+  fault: string
+  drill: string
+}
+
+export interface SwingBiometrics {
+  shoulderRotation: number
+  hipRotation: number
+  xFactor: number
+  leadArmAngle: number
+  spineTilt: number
+  headDrift: number
+  kneeFlexChange: number
+  lowConfidence: boolean
+}
+
 export interface SwingAnalysis {
-  frames: SwingFrame[]
-  overall: string
-  tips: string[]
+  summary: string
+  metrics: SwingMetric[]
+  tips: SwingTip[]
+  // Legacy fields from pre-MediaPipe analyses
+  overall?: string
+  frames?: SwingFrame[]
 }
 
 export interface Group {
