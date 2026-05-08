@@ -294,7 +294,7 @@ export default function RoundActive() {
             drag="x"
             style={{ x: carouselX, display: 'flex', willChange: 'transform' }}
             dragConstraints={{
-              left: cardWidth > 0 ? -(17 * cardWidth) : 0,
+              left: cardWidth > 0 ? -((activeRound.holes.length - 1) * cardWidth) : 0,
               right: 0,
             }}
             dragElastic={0.08}
@@ -302,10 +302,17 @@ export default function RoundActive() {
             onDragEnd={(_, info) => {
               const vel = info.velocity.x
               const off = info.offset.x
+              const maxIdx = activeRound.holes.length - 1
               let next = currentIdx
-              if (vel < -300 || off < -(cardWidth / 3)) next = Math.min(currentIdx + 1, 17)
-              else if (vel > 300 || off > cardWidth / 3)  next = Math.max(currentIdx - 1, 0)
-              setCurrentHole(next)
+              if (vel < -300 || off < -(cardWidth / 3)) next = Math.min(currentIdx + 1, maxIdx)
+              else if (vel > 300 || off > cardWidth / 3) next = Math.max(currentIdx - 1, 0)
+
+              if (next !== currentIdx) {
+                setCurrentHole(next) // triggers the animate useEffect
+              } else {
+                // Small swipe that didn't reach threshold — snap back to center
+                animate(carouselX, -currentIdx * cardWidth, { type: 'spring', stiffness: 320, damping: 32 })
+              }
             }}
           >
             {activeRound.holes.map((hole, i) => (

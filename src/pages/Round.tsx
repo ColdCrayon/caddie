@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { setOptions } from '@googlemaps/js-api-loader'
@@ -113,6 +113,7 @@ export default function Round() {
           await placesLibRef.current.AutocompleteSuggestion.fetchAutocompleteSuggestions({
             input: value,
             sessionToken: sessionTokenRef.current,
+            includedPrimaryTypes: ['golf_course'],
           })
         setSuggestions(results ?? [])
         setShowSuggestions(true)
@@ -185,6 +186,38 @@ export default function Round() {
     } as unknown as Course)
     setStep('hole-entry')
   }
+
+  // Unique recent courses derived from round history
+  const recentCourses = useMemo(() => {
+    if (!rounds) return []
+    const seen = new Set<string>()
+    return rounds
+      .filter((r) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cid = (r as any).course_id as string | undefined
+        if (!cid || seen.has(cid)) return false
+        seen.add(cid)
+        return true
+      })
+      .slice(0, 3)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((r: any) => ({ id: r.course_id as string, name: r.course?.name ?? 'Unknown', location: r.course?.location ?? '' }))
+  }, [rounds])
+
+  const quickStart = useCallback(async (courseId: string) => {
+    setSaving(true)
+    try {
+      const { data, error } = await supabase.from('courses').select('*').eq('id', courseId).single()
+      if (error) throw error
+      setSelectedCourse(data as Course)
+      const teePreference: TeeColor[] = ['white', 'blue', 'black', 'red']
+      const available = (data.tee_options ?? ['white']) as TeeColor[]
+      const preferred = teePreference.find((t) => available.includes(t)) ?? available[0]
+      if (preferred) setTeeColor(preferred)
+      setStep('tee-select')
+    } catch (e) { console.error(e) }
+    setSaving(false)
+  }, [])
 
   const handleManualSubmit = () => {
     if (!courseInput.trim()) return
@@ -311,6 +344,34 @@ export default function Round() {
             <div className="space-y-3">
               {!manualMode ? (
                 <>
+                  {/* Recent courses quick start */}
+                  {recentCourses.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="font-ui text-chalk/40 text-xs uppercase tracking-widest">Play Again</p>
+                      {recentCourses.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => quickStart(c.id)}
+                          disabled={saving}
+                          className="w-full text-left p-3 rounded-xl border border-white/10 bg-rough/30
+                                     active:scale-[0.98] transition-all cursor-pointer"
+                          style={{ borderColor: 'rgba(255,255,255,0.08)' }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-ui text-chalk text-sm font-medium">{c.name}</p>
+                              {c.location && <p className="font-ui text-chalk/40 text-xs mt-0.5 truncate max-w-[220px]">{c.location}</p>}
+                            </div>
+                            <span className="font-ui text-sand text-xs font-semibold uppercase tracking-wider flex-shrink-0 ml-2">
+                              {saving ? '…' : 'Tee up →'}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                      <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '4px 0' }} />
+                    </div>
+                  )}
+
                   <p className="font-ui text-chalk/50 text-sm">Search for your course</p>
                   <div className="relative">
                     <input

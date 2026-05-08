@@ -8,7 +8,7 @@ export function useRounds(userId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('rounds')
-        .select('*, course:courses(name, location)')
+        .select('*, course:courses(name, location), holes_played(par)')
         .eq('user_id', userId!)
         .order('date', { ascending: false })
       if (error) throw error

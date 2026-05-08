@@ -10,7 +10,7 @@ const colors: Record<SL, string> = {
 }
 
 export function ScoreLabel({ label }: { label: SL | undefined }) {
-  if (!label) return null
+  if (!label) return <></>
   return (
     <span className={`font-ui text-xs font-semibold uppercase tracking-wider ${colors[label]}`}>
       {label}

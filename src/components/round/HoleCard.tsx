@@ -81,7 +81,10 @@ export function HoleCard({ hole, index }: HoleCardProps) {
             <span className="font-display text-chalk tabular-nums" style={{ fontSize: 64, lineHeight: 1, minWidth: 56, textAlign: 'center' }}>
               {hole.strokes || '—'}
             </span>
-            {scoreLabel && <ScoreLabel label={scoreLabel} />}
+            {/* Fixed-height slot keeps the card the same height before/after scoring */}
+            <div style={{ height: 20, display: 'flex', alignItems: 'center' }}>
+              <ScoreLabel label={scoreLabel} />
+            </div>
           </div>
 
           <button
