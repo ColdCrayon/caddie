@@ -26,3 +26,6 @@ dist-ssr
 *.sln
 *.sw?
 .gstack/
+
+# Graphify cache (ephemeral, regenerated on each run)
+graphify-out/cache/
